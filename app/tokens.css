@@ -1,0 +1,31 @@
+:root {
+  /* Warm paper palette. Hex references: bg #F7F1E8, surface-1 #FBF7F0, surface-2 #F0E7DC, surface-3 #E8DCCD. */
+  --background: oklch(96.03% 0.0136 78.3);
+  --surface-1: oklch(97.73% 0.0102 81.8);
+  --surface-2: oklch(93.2% 0.0177 73.1);
+  --surface-3: oklch(90% 0.0241 73.6);
+  --foreground: oklch(27.53% 0.0108 73.5);
+  --muted-foreground: oklch(46.95% 0.0196 70.3);
+  /* Use subtle text only for timestamps, secondary metadata, disabled states, and decorative icon fills. Never use it for body copy or important controls. */
+  --subtle-foreground: oklch(59.31% 0.0254 71.6);
+  --border: oklch(84.84% 0.0262 73.1);
+  /* Accent on plain background is threshold-adjacent for small text (4.53:1). Use it for large text, icons, borders, UI components, or as a background with sufficiently contrasting text on top. */
+  --accent: oklch(55.28% 0.1445 45.9);
+  --accent-hover: oklch(49.07% 0.1322 44.7);
+  --accent-foreground: var(--surface-1);
+  --mono-surface: oklch(94.58% 0.0153 77.1);
+
+  --pickem-radius-sm: 0.375rem;
+  --pickem-radius-md: 0.625rem;
+  --pickem-radius-lg: 0.875rem;
+  --pickem-radius-xl: 1.125rem;
+
+  --pickem-shadow-popover: 0 12px 32px rgb(43 39 34 / 0.1);
+
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-normal: 160ms;
+  --duration-slow: 200ms;
+  --pickem-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --pickem-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
