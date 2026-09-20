@@ -9,10 +9,13 @@ const leaders = [
   { name: "Jordan", points: 136, accuracy: 61, streak: 4 },
 ];
 
-function TokenSwatch({ name, className }: { name: string; className: string }) {
+function TokenSwatch({ name, token }: { name: string; token: string }) {
   return (
     <div className="flex items-center gap-3 rounded-md border border-border bg-surface-1 p-3">
-      <div className={`size-9 rounded-sm border border-border ${className}`} />
+      <div
+        className="size-9 rounded-sm border border-border"
+        style={{ backgroundColor: `var(${token})` }}
+      />
       <span className="text-sm font-medium text-foreground">{name}</span>
     </div>
   );
@@ -130,11 +133,11 @@ export default function Home() {
 
           <PreviewCard eyebrow="Preview 02" title="Palette & Type Tokens">
             <div className="grid gap-3">
-              <TokenSwatch name="Background" className="bg-background" />
-              <TokenSwatch name="Surface 1" className="bg-surface-1" />
-              <TokenSwatch name="Surface 2" className="bg-surface-2" />
-              <TokenSwatch name="Surface 3" className="bg-surface-3" />
-              <TokenSwatch name="Accent" className="bg-accent" />
+              <TokenSwatch name="Background" token="--background" />
+              <TokenSwatch name="Surface 1" token="--surface-1" />
+              <TokenSwatch name="Surface 2" token="--surface-2" />
+              <TokenSwatch name="Surface 3" token="--surface-3" />
+              <TokenSwatch name="Accent" token="--accent" />
               <div className="rounded-md border border-border bg-mono-surface p-4 font-mono text-sm tabular-nums text-foreground">
                 1,284 · 62% · +110 · 08:14
               </div>
