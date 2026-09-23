@@ -50,6 +50,7 @@ export const events = pgTable(
     status: eventStatus("status").default("draft").notNull(),
     visibility: eventVisibility("visibility").default("unlisted").notNull(),
     passcodeHash: text("passcode_hash"),
+    draftStep: integer("draft_step"),
     opensAt: timestamp("opens_at", { withTimezone: true }).notNull(),
     closesAt: timestamp("closes_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -68,6 +69,10 @@ export const events = pgTable(
     check(
       "events_passcode_visibility_chk",
       sql`(${table.visibility} = 'passcode' and ${table.passcodeHash} is not null) or (${table.visibility} <> 'passcode' and ${table.passcodeHash} is null)`,
+    ),
+    check(
+      "events_draft_step_chk",
+      sql`${table.draftStep} is null or ${table.draftStep} between 1 and 3`,
     ),
   ],
 );

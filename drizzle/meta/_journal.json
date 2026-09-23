@@ -15,6 +15,13 @@
       "when": 1789928545942,
       "tag": "0001_option_vote_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790197436597,
+      "tag": "0002_draft_step",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "events" ADD COLUMN "draft_step" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD CONSTRAINT "events_draft_step_chk" CHECK ("events"."draft_step" is null or "events"."draft_step" between 1 and 3);
