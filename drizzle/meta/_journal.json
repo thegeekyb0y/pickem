@@ -22,6 +22,20 @@
       "when": 1790197436597,
       "tag": "0002_draft_step",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792275364716,
+      "tag": "0003_ordered_prediction_picks",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792275402609,
+      "tag": "0004_ordered_ballot_integrity",
+      "breakpoints": true
     }
   ]
 }
