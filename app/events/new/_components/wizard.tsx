@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
 import {
@@ -34,6 +35,8 @@ export type WizardInitial = {
   opensAt: string;
   closesAt: string;
   visibility: Visibility;
+  pickType: "single" | "top_n";
+  maxPicks: number;
   options: Omit<
     WizardOptionState,
     "key" | "uploading" | "imageError" | "linkDraft" | "showDetails" | "showImage"
@@ -126,6 +129,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [opensAt, setOpensAt] = useState(initial.opensAt);
   const [closesAt, setClosesAt] = useState(initial.closesAt);
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
+  const [pickType, setPickType] = useState<"single" | "top_n">(initial.pickType);
+  const [maxPicks, setMaxPicks] = useState(initial.maxPicks);
   const [passcode, setPasscode] = useState("");
   const [options, setOptions] = useState<WizardOptionState[]>(() =>
     initial.options.length > 0
@@ -163,6 +168,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       "f-opensAt",
       "f-closesAt",
       "f-passcode",
+      "f-maxPicks",
       ...options.flatMap((o) => [
         `opt-${o.key}-label`,
         `opt-${o.key}-description`,
@@ -181,9 +187,11 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 ? "f-opensAt"
                 : key === "closesAt"
                   ? "f-closesAt"
-                  : key === "passcode"
-                    ? "f-passcode"
-                    : null;
+              : key === "passcode"
+                ? "f-passcode"
+                : key === "maxPicks"
+                  ? "f-maxPicks"
+                : null;
       const target = elId ?? order.find((id) => id.startsWith("opt-"));
       const el = target ? document.getElementById(target) : null;
       if (el) {
@@ -208,6 +216,10 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       next.closesAt = "Closing time must be after opening time.";
     if (visibility === "passcode" && passcode.length < 4)
       next.passcode = "Set a passcode of at least 4 characters.";
+    if (pickType === "single" && maxPicks !== 1)
+      next.maxPicks = "Single-choice polls allow exactly one pick.";
+    if (pickType === "top_n" && (maxPicks < 2 || maxPicks > 8))
+      next.maxPicks = "Choose between 2 and 8 ranked picks.";
     return next;
   }
 
@@ -219,9 +231,20 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         o.description.trim() !== "" ||
         o.imageUrl.trim() !== "",
     );
-    if (kept.length < 2)
-      next.options = "Add at least two options before continuing.";
+    const labeled = kept.filter((option) => option.label.trim() !== "");
+    if (labeled.length < 2) next.options = "Add at least two labeled options before continuing.";
     if (options.length > 8) next.options = "A poll can have at most eight options.";
+    kept.forEach((option) => {
+      if (!option.label.trim()) {
+        next[`opt-${option.key}-label`] = "Add a label or clear this option row.";
+      }
+    });
+    if (pickType === "top_n") {
+      if (maxPicks < 2 || maxPicks > 8)
+        next.maxPicks = "Choose between 2 and 8 ranked picks.";
+      else if (maxPicks > labeled.length)
+        next.maxPicks = "The rank limit can’t exceed the number of labeled options.";
+    }
     options.forEach((o) => {
       if (o.label.trim().length > 120)
         next[`opt-${o.key}-label`] = "Keep labels to 120 characters or fewer.";
@@ -260,6 +283,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       closesAt,
       visibility,
       passcode,
+      pickType,
+      maxPicks,
       options: options.map(toInput),
     });
     setSavingDraft(false);
@@ -297,6 +322,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       closesAt,
       visibility,
       passcode,
+      pickType,
+      maxPicks,
       options: options.map(toInput),
     });
     setPublishing(false);
@@ -511,6 +538,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 </label>
                 <input
                   id="f-title"
+                  name="title"
                   type="text"
                   value={title}
                   maxLength={161}
@@ -529,12 +557,60 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 </label>
                 <textarea
                   id="f-description"
+                  name="description"
                   value={description}
                   rows={3}
                   placeholder="What are voters deciding, and what should they know?"
                   onChange={(e) => setDescription(e.target.value)}
                   className={inputClass}
                 />
+              </div>
+
+              <div>
+                <span id="pick-type-label" className={labelClass}>
+                  Pick format
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby="pick-type-label"
+                  className="grid gap-2 sm:grid-cols-2"
+                >
+                  {([
+                    {
+                      id: "single",
+                      label: "Single choice",
+                      hint: "Choose one option.",
+                    },
+                    {
+                      id: "top_n",
+                      label: "Top picks",
+                      hint: "Order your picks by tapping them.",
+                    },
+                  ] as const).map((choice) => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      aria-pressed={pickType === choice.id}
+                      onClick={() => {
+                        setPickType(choice.id);
+                        setMaxPicks(choice.id === "single" ? 1 : Math.max(2, maxPicks));
+                      }}
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                        pickType === choice.id
+                          ? "border-accent bg-surface-2"
+                          : "border-border bg-surface-1 hover:border-accent",
+                      )}
+                    >
+                      <span className="block text-sm font-bold text-foreground">
+                        {choice.label}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {choice.hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="grid gap-5 sm:grid-cols-2">
@@ -544,6 +620,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                   </label>
                   <input
                     id="f-opensAt"
+                    name="opensAt"
                     type="datetime-local"
                     value={opensAt}
                     onChange={(e) => setOpensAt(e.target.value)}
@@ -559,6 +636,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                   </label>
                   <input
                     id="f-closesAt"
+                    name="closesAt"
                     type="datetime-local"
                     value={closesAt}
                     onChange={(e) => setClosesAt(e.target.value)}
@@ -621,6 +699,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     </label>
                     <input
                       id="f-passcode"
+                      name="passcode"
                       type="password"
                       value={passcode}
                       autoComplete="off"
@@ -656,6 +735,33 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 <p role="alert" className="mt-2 text-sm text-accent">
                   {errors.options}
                 </p>
+              ) : null}
+
+              {pickType === "top_n" ? (
+                <div className="mt-4 max-w-xs">
+                  <label htmlFor="f-maxPicks" className={labelClass}>
+                    Maximum ranks
+                  </label>
+                  <select
+                    id="f-maxPicks"
+                    name="maxPicks"
+                    value={maxPicks}
+                    onChange={(e) => setMaxPicks(Number(e.target.value))}
+                    aria-invalid={Boolean(errors.maxPicks)}
+                    aria-describedby={errors.maxPicks ? "f-maxPicks-error" : undefined}
+                    className={cn(inputClass, "font-mono tabular-nums")}
+                  >
+                    {Array.from({ length: 7 }, (_, index) => index + 2).map((count) => (
+                      <option key={count} value={count}>
+                        Rank up to {count} options
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Voters may rank fewer than this, but at least one.
+                  </p>
+                  <FieldError id="f-maxPicks-error" message={errors.maxPicks} />
+                </div>
               ) : null}
 
               <ul className="mt-4 space-y-3">
@@ -851,11 +957,12 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
 
                             {o.imageUrl.trim() !== "" ? (
                               <div className="mt-2 flex items-center gap-3">
-                                <img
+                                <Image
                                   src={o.imageUrl}
                                   alt={o.imageAlt.trim() === "" ? `${o.label.trim() === "" ? "Option" : o.label.trim()} image preview` : o.imageAlt}
                                   width={48}
                                   height={48}
+                                  unoptimized
                                   className="size-12 rounded-md border border-border"
                                 />
                                 <div className="min-w-0 flex-1">
@@ -945,6 +1052,12 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     <dt className="font-sans font-medium text-muted-foreground">Visibility</dt>
                     <dd className="text-foreground">{visibility}</dd>
                   </div>
+                  <div>
+                    <dt className="font-sans font-medium text-muted-foreground">Pick format</dt>
+                    <dd className="text-foreground">
+                      {pickType === "single" ? "Single choice" : `Top ${maxPicks}`}
+                    </dd>
+                  </div>
                 </div>
                 <div>
                   <dt className="font-medium text-muted-foreground">
@@ -959,11 +1072,12 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                           className="flex items-center gap-3 rounded-md border border-border bg-surface-2 p-3"
                         >
                           {o.imageUrl.trim() !== "" ? (
-                            <img
+                            <Image
                               src={o.imageUrl}
                               alt=""
                               width={40}
                               height={40}
+                              unoptimized
                               className="size-10 shrink-0 rounded-md border border-border"
                             />
                           ) : null}

@@ -14,6 +14,7 @@ const scrypt = promisify(scryptCallback);
 
 export type Visibility = "unlisted" | "discoverable" | "passcode";
 export type SaveMode = "draft" | "publish";
+export type PickType = "single" | "top_n";
 
 export type OptionInput = {
   label: string;
@@ -34,6 +35,8 @@ export type SaveEventInput = {
   closesAt: string;
   visibility: Visibility;
   passcode: string;
+  pickType: PickType;
+  maxPicks: number;
   options: OptionInput[];
 };
 
@@ -111,6 +114,34 @@ function validateOptions(list: OptionInput[], strict: boolean) {
 }
 
 export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult> {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    typeof input.title !== "string" ||
+    typeof input.description !== "string" ||
+    typeof input.opensAt !== "string" ||
+    typeof input.closesAt !== "string" ||
+    typeof input.passcode !== "string" ||
+    !Array.isArray(input.options) ||
+    input.options.length > 8 ||
+    input.options.some(
+      (option) =>
+        !option ||
+        typeof option.label !== "string" ||
+        typeof option.description !== "string" ||
+        typeof option.imageUrl !== "string" ||
+        typeof option.imageBlobKey !== "string" ||
+        typeof option.imageAlt !== "string" ||
+        !["none", "blob", "external_url"].includes(option.imageSource),
+    )
+  ) {
+    return {
+      ok: false,
+      errors: {},
+      formError: "Some submitted poll details were invalid. Review the fields and try again.",
+    };
+  }
+
   const userId = await requireUserId();
   if (!userId) {
     return { ok: false, errors: {}, formError: "Sign in to save this poll." };
@@ -126,6 +157,8 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   )
     ? input.visibility
     : "unlisted";
+  const pickType: PickType = input.pickType === "top_n" ? "top_n" : "single";
+  const maxPicks = Number.isInteger(input.maxPicks) ? input.maxPicks : 1;
   const draftStep = [1, 2, 3].includes(input.draftStep) ? input.draftStep : 1;
 
   let opensAt: Date | null = null;
@@ -157,12 +190,34 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   const { errors: optionErrors, kept } = validateOptions(input.options, strict);
   Object.assign(errors, optionErrors);
 
+  if (pickType === "single" && maxPicks !== 1) {
+    errors.maxPicks = "Single-choice polls allow exactly one pick.";
+  }
+  if (pickType === "top_n") {
+    if (maxPicks < 2 || maxPicks > 8) {
+      errors.maxPicks = "Choose between 2 and 8 ranked picks.";
+    } else if (strict && maxPicks > kept.filter((option) => option.label.trim() !== "").length) {
+      errors.maxPicks = "The rank limit can’t exceed the number of labeled options.";
+    }
+  }
+
   if (Object.keys(errors).length > 0) {
     return { ok: false, errors, formError: null };
   }
 
   let existing: typeof events.$inferSelect | undefined;
   if (input.eventId) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.eventId,
+      )
+    ) {
+      return {
+        ok: false,
+        errors: {},
+        formError: "This draft isn’t available — it may have been published or removed.",
+      };
+    }
     existing = await db.query.events.findFirst({
       where: eq(events.id, input.eventId),
     });
@@ -209,6 +264,8 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
           status,
           visibility,
           passcodeHash,
+          pickType,
+          maxPicks,
           opensAt: finalOpens,
           closesAt: finalCloses,
           draftStep: input.saveAs === "publish" ? null : draftStep,
@@ -226,6 +283,8 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
           status,
           visibility,
           passcodeHash,
+          pickType,
+          maxPicks,
           opensAt: finalOpens,
           closesAt: finalCloses,
           draftStep: input.saveAs === "publish" ? null : draftStep,

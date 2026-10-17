@@ -52,6 +52,8 @@ export default async function NewEventPage({
     opensAt: "",
     closesAt: "",
     visibility: "unlisted",
+    pickType: "single",
+    maxPicks: 1,
     options: [],
   };
 
@@ -69,6 +71,8 @@ export default async function NewEventPage({
         opensAt: toLocalInput(draft.opensAt),
         closesAt: toLocalInput(draft.closesAt),
         visibility: draft.visibility,
+        pickType: draft.pickType,
+        maxPicks: draft.maxPicks,
         options: draft.options.map((o) => ({
           label: o.label.startsWith("Untitled option") ? "" : o.label,
           description: o.description ?? "",
