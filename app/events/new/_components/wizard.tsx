@@ -902,7 +902,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                               <div className="mt-2">
                                 <label
                                   htmlFor={`opt-${o.key}-file`}
-                                  className="inline-block cursor-pointer rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                                  className="inline-block rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                                 >
                                   {o.uploading ? "Uploading…" : "Choose image"}
                                 </label>
@@ -1010,7 +1010,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 className={cn(
                   "mt-3 w-full rounded-lg border border-dashed px-4 py-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                   options.length >= 8
-                    ? "cursor-not-allowed border-border text-subtle-foreground"
+                    ? "border-border text-subtle-foreground"
                     : "border-border text-muted-foreground hover:border-accent hover:text-accent",
                 )}
               >
@@ -1116,7 +1116,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
             type="button"
             onClick={() => void handleSaveDraft()}
             disabled={savingDraft || publishing}
-            className="rounded-md border border-border bg-surface-1 px-4 py-2 text-sm font-medium text-muted-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-70"
+            className="rounded-md border border-border bg-surface-1 px-4 py-2 text-sm font-medium text-muted-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
           >
             {savingDraft ? "Saving…" : "Save as draft"}
           </button>
@@ -1134,7 +1134,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
             type="button"
             onClick={() => void handlePublish()}
             disabled={publishing || savingDraft}
-            className="rounded-md bg-accent-hover px-5 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-70"
+            className="rounded-md bg-accent-hover px-5 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
           >
             {publishing ? "Publishing…" : eventId ? "Publish draft" : "Publish poll"}
           </button>

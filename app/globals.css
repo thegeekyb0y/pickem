@@ -25,6 +25,32 @@
   --ease-pickem-in-out: var(--pickem-ease-in-out);
 }
 
+@layer base {
+  :where(
+    button:not(:disabled),
+    [role="button"]:not(:disabled):not([aria-disabled="true"]),
+    a[href]:not([aria-disabled="true"]),
+    select:not(:disabled),
+    summary,
+    label:has(input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled)),
+    label[for]:has(+ input[type="file"]:not(:disabled))
+  ) {
+    cursor: pointer;
+  }
+
+  :where(
+    button:disabled,
+    select:disabled,
+    [role="button"]:disabled,
+    [role="button"][aria-disabled="true"],
+    a[aria-disabled="true"],
+    label:has(input[type="checkbox"]:disabled, input[type="radio"]:disabled),
+    label[for]:has(+ input[type="file"]:disabled)
+  ) {
+    cursor: not-allowed;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

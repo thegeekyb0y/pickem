@@ -233,7 +233,7 @@ export default function EventDetailClient({
                             "flex w-full items-center gap-3 rounded-lg border bg-surface-1 p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                             selected ? "border-accent bg-surface-2" : "border-border",
                             canVote && !disabled && "hover:border-accent",
-                            disabled && !selected && "cursor-not-allowed opacity-80",
+                            disabled && !selected && "opacity-80",
                           )}
                         >
                           {option.imageUrl ? (
@@ -406,7 +406,7 @@ export default function EventDetailClient({
               type="button"
               onClick={() => void castVote()}
               disabled={pending || selectedIds.length === 0 || isClosed}
-              className="rounded-md bg-accent-hover px-5 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted-foreground"
+              className="rounded-md bg-accent-hover px-5 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-surface-3 disabled:text-muted-foreground"
             >
               {pending ? "Submitting…" : "Submit final ballot"}
             </button>

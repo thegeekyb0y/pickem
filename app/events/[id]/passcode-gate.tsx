@@ -51,7 +51,7 @@ export default function PasscodeGate({ eventId }: { eventId: string }) {
           <button
             type="submit"
             disabled={pending || passcode.length === 0}
-            className="mt-4 w-full rounded-md bg-accent-hover px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-70"
+            className="mt-4 w-full rounded-md bg-accent-hover px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
           >
             {pending ? "Checking…" : "Unlock poll"}
           </button>
