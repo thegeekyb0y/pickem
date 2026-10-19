@@ -159,7 +159,11 @@ export default function EventDetailClient({
           <section>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-sm border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {event.visibility === "discoverable" ? "Discoverable" : "Unlisted"}
+                {event.visibility === "discoverable"
+                  ? "Discoverable"
+                  : event.visibility === "passcode"
+                    ? "Passcode"
+                    : "Unlisted"}
               </span>
               {!effectiveClosed ? (
                 <span className="inline-flex items-center gap-2 rounded-sm border border-accent px-3 py-1 text-sm font-medium text-accent">

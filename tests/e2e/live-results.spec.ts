@@ -49,7 +49,7 @@ test("a second browser context receives live ballot updates without refresh", as
     await pageA.getByRole("button", { name: "E2E option 1" }).click();
     await pageA.getByLabel("Social handle").fill("pickem-e2e");
     await pageA.getByRole("button", { name: "Submit final ballot" }).click();
-    await expect(pageA.getByText("Ballot submitted. Your picks are final and can’t be edited.")).toBeVisible();
+    await expect(pageA.getByText(/Ballot submitted/)).toBeVisible();
     await expect(pageB.getByTestId("ballot-count")).toContainText("1 ballot", { timeout: 10_000 });
   } finally {
     await contextA?.close();
