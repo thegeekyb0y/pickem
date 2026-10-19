@@ -3,8 +3,9 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { events } from "@/db/schema/app";
 import { hasEventUnlock } from "@/lib/events/access";
-import { areTalliesVisible, getResultSnapshot } from "@/lib/events/results";
+import { areTalliesVisible } from "@/lib/events/results";
 import { resolveResultsAccess } from "@/lib/events/results-access";
+import { getCachedResultSnapshot } from "@/lib/live/result-cache";
 import { getClientIp, limitResultsRequest } from "@/lib/rate-limit";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,7 +49,7 @@ export async function GET(
       return privateResponse({ error: "Too many requests" }, 429);
     }
 
-    const snapshot = await getResultSnapshot(event);
+    const snapshot = await getCachedResultSnapshot(event);
     const visibleSnapshot = areTalliesVisible(event)
       ? snapshot
       : { ...snapshot, version: 0, totalBallots: 0, counts: {}, talliesVisible: false };

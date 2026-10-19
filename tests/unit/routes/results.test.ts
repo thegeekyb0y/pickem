@@ -36,6 +36,9 @@ vi.mock("@/lib/events/results", () => ({
   areTalliesVisible: (event: { status: string }) => event.status !== "draft",
   getResultSnapshot: vi.fn(async () => mocks.snapshot),
 }));
+vi.mock("@/lib/live/result-cache", () => ({
+  getCachedResultSnapshot: vi.fn(async () => mocks.snapshot),
+}));
 vi.mock("@/lib/rate-limit", () => ({
   getClientIp: () => "127.0.0.1",
   limitResultsRequest: vi.fn(async () => mocks.allowed),
