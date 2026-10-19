@@ -196,7 +196,7 @@ export default function EventDetailClient({
 
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tabular-nums">
               {snapshot.talliesVisible ? (
-                <span className="text-foreground">
+                <span className="text-foreground" data-testid="ballot-count">
                   <AnimatedNumber value={totalBallots} format="integer" className="tabular-nums" />{" "}
                   {totalBallots === 1 ? "ballot" : "ballots"}
                 </span>

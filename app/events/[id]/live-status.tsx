@@ -16,6 +16,7 @@ export default function LiveStatus({ status }: { status: Status }) {
 
   return (
     <span
+      data-testid="live-status"
       aria-live="polite"
       className="inline-flex items-center gap-1.5 text-xs font-medium text-subtle-foreground"
     >
