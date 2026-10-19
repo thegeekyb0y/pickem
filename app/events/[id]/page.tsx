@@ -144,6 +144,7 @@ export default async function EventDetailPage({
         event.closesAt <= now ||
         event.opensAt > now
       }
+      isOwner={session?.user?.id === event.creatorUserId}
     />
   );
 }

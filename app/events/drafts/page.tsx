@@ -77,12 +77,20 @@ export default async function DraftsPage() {
                     }).format(d.updatedAt)}
                   </p>
                 </div>
-                <Link
-                  href={`/events/new?draft=${d.id}`}
-                  className="shrink-0 rounded-md border border-border bg-surface-1 px-4 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  Resume
-                </Link>
+                <div className="flex shrink-0 gap-2">
+                  <Link
+                    href={`/events/${d.id}`}
+                    className="rounded-md border border-border bg-surface-1 px-3 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    View
+                  </Link>
+                  <Link
+                    href={`/events/new?draft=${d.id}`}
+                    className="rounded-md border border-border bg-surface-1 px-3 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    Resume
+                  </Link>
+                </div>
               </li>
             ))}
           </ul>

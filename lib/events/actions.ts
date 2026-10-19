@@ -5,12 +5,13 @@ import { promisify } from "node:util";
 import { headers } from "next/headers";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { put } from "@vercel/blob";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { events, options } from "@/db/schema/app";
 
 const scrypt = promisify(scryptCallback);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type Visibility = "unlisted" | "discoverable" | "passcode";
 export type SaveMode = "draft" | "publish";
@@ -43,6 +44,10 @@ export type SaveEventInput = {
 export type SaveEventResult =
   | { ok: true; eventId: string; status: string }
   | { ok: false; errors: Record<string, string>; formError: string | null };
+
+export type OwnerActionResult =
+  | { ok: true }
+  | { ok: false; message: string };
 
 async function requireUserId() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -319,6 +324,82 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
     revalidatePath("/");
   }
   return { ok: true, eventId, status };
+}
+
+export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
+  if (!UUID_PATTERN.test(eventId)) {
+    return { ok: false, message: "This poll is unavailable." };
+  }
+
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, message: "Sign in to manage this poll." };
+
+  const closed = await db.transaction(async (tx) => {
+    const [event] = await tx
+      .select({
+        id: events.id,
+        creatorUserId: events.creatorUserId,
+        status: events.status,
+        opensAt: events.opensAt,
+        closesAt: events.closesAt,
+      })
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.creatorUserId, userId)))
+      .for("update");
+    if (!event) return false;
+
+    const [{ now }] = await tx
+      .select({ now: sql<Date>`clock_timestamp()` })
+      .from(events)
+      .where(eq(events.id, event.id));
+    if (
+      event.status === "draft" ||
+      event.status === "cancelled" ||
+      event.status === "closed" ||
+      event.opensAt > now ||
+      event.closesAt <= now
+    ) {
+      return false;
+    }
+
+    await tx
+      .update(events)
+      .set({ status: "closed", closesAt: now, updatedAt: now })
+      .where(eq(events.id, event.id));
+    return true;
+  });
+
+  if (!closed) return { ok: false, message: "Only an open poll can be closed early." };
+  revalidateTag("home:polls", "max");
+  revalidatePath("/");
+  revalidatePath(`/events/${eventId}`);
+  return { ok: true };
+}
+
+export async function deleteDraft(eventId: string): Promise<OwnerActionResult> {
+  if (!UUID_PATTERN.test(eventId)) {
+    return { ok: false, message: "This draft is unavailable." };
+  }
+
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, message: "Sign in to delete this draft." };
+
+  const [deleted] = await db
+    .delete(events)
+    .where(
+      and(
+        eq(events.id, eventId),
+        eq(events.creatorUserId, userId),
+        eq(events.status, "draft"),
+      ),
+    )
+    .returning({ id: events.id });
+
+  if (!deleted) return { ok: false, message: "Only your own draft can be deleted." };
+  revalidateTag("home:polls", "max");
+  revalidatePath("/");
+  revalidatePath("/events/drafts");
+  return { ok: true };
 }
 
 export type UploadResult =

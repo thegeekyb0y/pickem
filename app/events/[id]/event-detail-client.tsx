@@ -7,6 +7,7 @@ import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { submitVote } from "@/lib/events/voting";
+import OwnerControls from "./owner-controls";
 import ShareButton from "./share-button";
 
 type EventData = {
@@ -73,6 +74,7 @@ export default function EventDetailClient({
   isLoggedIn,
   notStarted,
   isClosed,
+  isOwner,
 }: {
   event: EventData;
   options: OptionData[];
@@ -82,6 +84,7 @@ export default function EventDetailClient({
   isLoggedIn: boolean;
   notStarted: boolean;
   isClosed: boolean;
+  isOwner: boolean;
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
@@ -183,6 +186,15 @@ export default function EventDetailClient({
               </h1>
               <ShareButton title={event.title} />
             </div>
+            {isOwner ? (
+              <div className="mt-4">
+                <OwnerControls
+                  eventId={event.id}
+                  isDraft={event.status === "draft"}
+                  isLive={!isClosed && !notStarted}
+                />
+              </div>
+            ) : null}
             {event.description ? (
               <p className="mt-3 max-w-2xl text-pretty text-base leading-6 text-muted-foreground">
                 {event.description}
