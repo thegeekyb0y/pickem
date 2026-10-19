@@ -32,5 +32,10 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm test
+      - name: Migrate the disposable test database
+        if: env.DATABASE_URL_TEST != ''
+        env:
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_TEST_DATABASE_URL }}
+        run: npx drizzle-kit migrate
       - run: npm run test:integration
       - run: npm run build

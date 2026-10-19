@@ -36,6 +36,13 @@
       "when": 1792275402609,
       "tag": "0004_ordered_ballot_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792451869417,
+      "tag": "0005_allow_event_cascade_delete",
+      "breakpoints": true
     }
   ]
 }
