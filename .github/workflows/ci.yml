@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/pickem
+      DATABASE_URL_TEST: ${{ secrets.NEON_TEST_DATABASE_URL }}
+      ALLOW_TEST_DB_MUTATION: "1"
+      BETTER_AUTH_SECRET: ci-only-not-a-production-secret
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      GOOGLE_CLIENT_ID: ci-placeholder
+      GOOGLE_CLIENT_SECRET: ci-placeholder
+      UPSTASH_REDIS_REST_URL: https://example.upstash.io
+      UPSTASH_REDIS_REST_TOKEN: ci-placeholder
+      RATE_LIMIT_HASH_SECRET: ci-only-rate-limit-secret
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build
