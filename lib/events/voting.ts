@@ -8,9 +8,10 @@ import {
 import { promisify } from "node:util";
 import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
+import { isVoteWindowOpen } from "@/lib/events/ballot-rules";
 import {
   getClientIp,
   limitPasscodeAttempt,
@@ -57,6 +58,8 @@ export type VoteResult =
         | "error";
       message: string;
     };
+
+class VoteWindowClosedError extends Error {}
 
 async function verifyPasscode(encoded: string, candidate: string) {
   const [algorithm, salt, expectedHex] = encoded.split("$");
@@ -141,62 +144,9 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
     return { ok: false, reason: "rate-limited", message: "Please wait before trying again." };
   }
 
-  const event = await db.query.events.findFirst({ where: eq(events.id, input.eventId) });
-  if (!event) return { ok: false, reason: "error", message: "This poll could not be found." };
-  if (event.visibility === "passcode" && event.passcodeHash) {
-    const token = (await cookies()).get(UNLOCK_COOKIE)?.value;
-    const tokenHash = token
-      ? hashUnlockToken(event.id, event.passcodeHash, token)
-      : null;
-    const unlocked = tokenHash
-      ? await db.query.eventPasscodeUnlocks.findFirst({
-          where: and(
-            eq(eventPasscodeUnlocks.eventId, event.id),
-            eq(eventPasscodeUnlocks.unlockSessionTokenHash, tokenHash),
-          ),
-        })
-      : null;
-    if (!unlocked) {
-      return { ok: false, reason: "locked", message: "Unlock this poll before voting." };
-    }
-  }
-
-  const now = new Date();
-  const eventCanAcceptVotes =
-    (event.status === "open" || event.status === "scheduled") &&
-    event.opensAt <= now &&
-    event.closesAt > now;
-  if (!eventCanAcceptVotes) {
-    return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
-  }
-
-  if (event.pickType === "single" && input.optionIds.length !== 1) {
-    return { ok: false, reason: "invalid", message: "Choose exactly one option." };
-  }
-  if (event.pickType === "top_n" && input.optionIds.length > event.maxPicks) {
-    return {
-      ok: false,
-      reason: "invalid",
-      message: `Choose no more than ${event.maxPicks} options, in order.`,
-    };
-  }
-
-  const selectedOptions = await db
-    .select({ id: options.id })
-    .from(options)
-    .where(and(eq(options.eventId, event.id), inArray(options.id, input.optionIds)));
-  if (selectedOptions.length !== input.optionIds.length) {
-    return {
-      ok: false,
-      reason: "invalid",
-      message: "One or more selected options are no longer available.",
-    };
-  }
-
-  let guestSessionId: string | null = null;
+  let guestToken: string | null = null;
   let guestHandle: string | null = null;
   let guestHandlePlatform: "instagram" | "x" | null = null;
-
   if (!userId) {
     guestHandle = input.guestHandle?.trim() ?? "";
     guestHandlePlatform = input.guestHandlePlatform ?? null;
@@ -213,10 +163,10 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
     }
 
     const cookieStore = await cookies();
-    let token = cookieStore.get(GUEST_COOKIE)?.value;
-    if (!token) {
-      token = randomBytes(32).toString("base64url");
-      cookieStore.set(GUEST_COOKIE, token, {
+    guestToken = cookieStore.get(GUEST_COOKIE)?.value ?? null;
+    if (!guestToken) {
+      guestToken = randomBytes(32).toString("base64url");
+      cookieStore.set(GUEST_COOKIE, guestToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -224,32 +174,101 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         maxAge: 60 * 60 * 24 * 365,
       });
     }
-
-    if (!(await limitVoteByIdentity(`guest:${token}`, event.id))) {
+    if (!(await limitVoteByIdentity(`guest:${guestToken}`, input.eventId))) {
       return { ok: false, reason: "rate-limited", message: "Please wait before trying again." };
     }
-
-    const tokenHash = hashGuestToken(event.id, token);
-    await db
-      .insert(voteGuestSessions)
-      .values({ eventId: event.id, guestSessionTokenHash: tokenHash })
-      .onConflictDoNothing({
-        target: [voteGuestSessions.eventId, voteGuestSessions.guestSessionTokenHash],
-      });
-    const guestSession = await db.query.voteGuestSessions.findFirst({
-      where: and(
-        eq(voteGuestSessions.eventId, event.id),
-        eq(voteGuestSessions.guestSessionTokenHash, tokenHash),
-      ),
-    });
-    if (!guestSession) {
-      return { ok: false, reason: "error", message: "Could not start a guest voting session." };
-    }
-    guestSessionId = guestSession.id;
   }
 
+  const unlockToken = (await cookies()).get(UNLOCK_COOKIE)?.value ?? null;
+
   try {
-    const voteId = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx): Promise<VoteResult> => {
+      // Serialize vote submissions against owner close actions for this event.
+      const [event] = await tx
+        .select()
+        .from(events)
+        .where(eq(events.id, input.eventId))
+        .for("update");
+      if (!event) {
+        return { ok: false, reason: "error", message: "This poll could not be found." };
+      }
+
+      const [{ dbNow }] = await tx
+        .select({ dbNow: sql<Date>`clock_timestamp()` })
+        .from(events)
+        .where(eq(events.id, event.id));
+      if (!isVoteWindowOpen(event, dbNow)) {
+        return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
+      }
+
+      if (event.visibility === "passcode" && event.passcodeHash) {
+        const tokenHash = unlockToken
+          ? hashUnlockToken(event.id, event.passcodeHash, unlockToken)
+          : null;
+        const [unlock] = tokenHash
+          ? await tx
+              .select({ id: eventPasscodeUnlocks.id })
+              .from(eventPasscodeUnlocks)
+              .where(
+                and(
+                  eq(eventPasscodeUnlocks.eventId, event.id),
+                  eq(eventPasscodeUnlocks.unlockSessionTokenHash, tokenHash),
+                ),
+              )
+          : [];
+        if (!unlock) {
+          return { ok: false, reason: "locked", message: "Unlock this poll before voting." };
+        }
+      }
+
+      if (event.pickType === "single" && input.optionIds.length !== 1) {
+        return { ok: false, reason: "invalid", message: "Choose exactly one option." };
+      }
+      if (event.pickType === "top_n" && input.optionIds.length > event.maxPicks) {
+        return {
+          ok: false,
+          reason: "invalid",
+          message: `Choose no more than ${event.maxPicks} options, in order.`,
+        };
+      }
+
+      const selectedOptions = await tx
+        .select({ id: options.id })
+        .from(options)
+        .where(and(eq(options.eventId, event.id), inArray(options.id, input.optionIds)))
+        .for("share");
+      if (selectedOptions.length !== input.optionIds.length) {
+        return {
+          ok: false,
+          reason: "invalid",
+          message: "One or more selected options are no longer available.",
+        };
+      }
+
+      let guestSessionId: string | null = null;
+      if (!userId && guestToken) {
+        const tokenHash = hashGuestToken(event.id, guestToken);
+        await tx
+          .insert(voteGuestSessions)
+          .values({ eventId: event.id, guestSessionTokenHash: tokenHash })
+          .onConflictDoNothing({
+            target: [voteGuestSessions.eventId, voteGuestSessions.guestSessionTokenHash],
+          });
+        const [guestSession] = await tx
+          .select({ id: voteGuestSessions.id })
+          .from(voteGuestSessions)
+          .where(
+            and(
+              eq(voteGuestSessions.eventId, event.id),
+              eq(voteGuestSessions.guestSessionTokenHash, tokenHash),
+            ),
+          );
+        if (!guestSession) {
+          return { ok: false, reason: "error", message: "Could not start a guest voting session." };
+        }
+        guestSessionId = guestSession.id;
+      }
+
       const [ballot] = await tx
         .insert(votes)
         .values({
@@ -272,24 +291,31 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
             rankPosition: index + 1,
           })),
         );
-
-        await tx
-          .update(votes)
-          .set({ isSubmitted: true })
-          .where(eq(votes.id, ballot.id));
+        await tx.update(votes).set({ isSubmitted: true }).where(eq(votes.id, ballot.id));
       }
 
       if (event.status === "scheduled") {
         await tx.update(events).set({ status: "open" }).where(eq(events.id, event.id));
       }
 
-      return ballot.id;
+      // A transaction that spans the deadline is rolled back rather than landing late.
+      const [{ finalDbNow }] = await tx
+        .select({ finalDbNow: sql<Date>`clock_timestamp()` })
+        .from(events)
+        .where(eq(events.id, event.id));
+      if (event.closesAt <= finalDbNow) throw new VoteWindowClosedError();
+
+      return { ok: true, voteId: ballot.id };
     });
 
-    revalidatePath(`/events/${event.id}`);
-    return { ok: true, voteId };
+    if (!result.ok) return result;
+    revalidatePath(`/events/${input.eventId}`);
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
+    if (error instanceof VoteWindowClosedError) {
+      return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
+    }
     if (
       message.includes("votes_logged_in_dedupe_unique") ||
       message.includes("votes_guest_dedupe_unique") ||
