@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Pickem",
-  description: "Live pick voting previews for Pickem.",
+  description: "Discover polls, make predictions, and follow the results.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
