@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { events } from "@/db/schema/app";
 import { hasEventUnlock } from "@/lib/events/access";
-import { areTalliesVisible } from "@/lib/events/results";
+import { areTalliesVisible, hideSnapshotTallies } from "@/lib/events/results";
 import { resolveResultsAccess } from "@/lib/events/results-access";
 import { getCachedResultSnapshot } from "@/lib/live/result-cache";
 import { getClientIp, limitResultsRequest } from "@/lib/rate-limit";
@@ -52,7 +52,7 @@ export async function GET(
     const snapshot = await getCachedResultSnapshot(event);
     const visibleSnapshot = areTalliesVisible(event)
       ? snapshot
-      : { ...snapshot, version: 0, totalBallots: 0, counts: {}, talliesVisible: false };
+      : hideSnapshotTallies(snapshot);
     const closedForGood =
       event.status === "closed" ||
       event.status === "cancelled" ||

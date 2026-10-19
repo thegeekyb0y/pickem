@@ -11,7 +11,7 @@ import {
   votes,
 } from "@/db/schema/app";
 import { GUEST_COOKIE, hashGuestToken, hasEventUnlock } from "@/lib/events/access";
-import { getResultSnapshot } from "@/lib/events/results";
+import { getResultSnapshot, hideSnapshotTallies } from "@/lib/events/results";
 import PasscodeGate from "./passcode-gate";
 import EventDetailClient from "./event-detail-client";
 
@@ -40,7 +40,8 @@ export default async function EventDetailPage({
     return <PasscodeGate eventId={event.id} />;
   }
 
-  const snapshot = await getResultSnapshot(event);
+  const rawSnapshot = await getResultSnapshot(event);
+  const snapshot = rawSnapshot.talliesVisible ? rawSnapshot : hideSnapshotTallies(rawSnapshot);
   const now = new Date(snapshot.serverNow);
   const userId = session?.user?.id ?? null;
   let viewerVote: typeof votes.$inferSelect | undefined;
@@ -107,11 +108,7 @@ export default async function EventDetailPage({
         imageUrl: option.imageUrl,
         imageAlt: option.imageAlt,
       }))}
-      selectionCounts={optionRows.map((option) => ({
-        optionId: option.id,
-        count: snapshot.counts[option.id] ?? 0,
-      }))}
-      totalBallots={snapshot.totalBallots}
+      initialSnapshot={snapshot}
       initialVoteIds={previousRanks}
       isLoggedIn={userId != null}
       notStarted={event.opensAt > now}

@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
+import type { ResultSnapshot } from "@/lib/events/results";
+import { useLiveResults } from "@/lib/live/use-live-results";
 import { submitVote } from "@/lib/events/voting";
+import AnimatedNumber from "./animated-number";
+import LiveStatus from "./live-status";
 import OwnerControls from "./owner-controls";
+import ResultBar from "./result-bar";
 import ShareButton from "./share-button";
 
 type EventData = {
@@ -29,19 +34,6 @@ type OptionData = {
   imageUrl: string | null;
   imageAlt: string | null;
 };
-
-type SelectionCount = { optionId: string; count: number };
-
-function numberFormat(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function percentFormat(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "percent",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
 
 function dateFormat(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -68,8 +60,7 @@ function CheckIcon() {
 export default function EventDetailClient({
   event,
   options,
-  selectionCounts,
-  totalBallots,
+  initialSnapshot,
   initialVoteIds,
   isLoggedIn,
   notStarted,
@@ -78,8 +69,7 @@ export default function EventDetailClient({
 }: {
   event: EventData;
   options: OptionData[];
-  selectionCounts: SelectionCount[];
-  totalBallots: number;
+  initialSnapshot: ResultSnapshot;
   initialVoteIds: string[];
   isLoggedIn: boolean;
   notStarted: boolean;
@@ -88,6 +78,11 @@ export default function EventDetailClient({
 }) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
+  const { snapshot, status: liveStatus } = useLiveResults({
+    eventId: event.id,
+    initial: initialSnapshot,
+    enabled: !isClosed && !notStarted,
+  });
   const [selectedIds, setSelectedIds] = useState(initialVoteIds);
   const [hasVoted, setHasVoted] = useState(initialVoteIds.length > 0);
   const [guestHandle, setGuestHandle] = useState("");
@@ -95,12 +90,10 @@ export default function EventDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const counts = useMemo(
-    () => new Map(selectionCounts.map((selection) => [selection.optionId, selection.count])),
-    [selectionCounts],
-  );
+  const totalBallots = snapshot.totalBallots;
+  const effectiveClosed = isClosed || snapshot.closed;
   const selectionLimit = event.pickType === "single" ? 1 : event.maxPicks;
-  const canVote = !isClosed && !hasVoted && options.length > 0;
+  const canVote = !effectiveClosed && !hasVoted && options.length > 0;
 
   function toggleOption(optionId: string) {
     if (!canVote || pending) return;
@@ -168,7 +161,7 @@ export default function EventDetailClient({
               <span className="rounded-sm border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {event.visibility === "discoverable" ? "Discoverable" : "Unlisted"}
               </span>
-              {!isClosed ? (
+              {!effectiveClosed ? (
                 <span className="inline-flex items-center gap-2 rounded-sm border border-accent px-3 py-1 text-sm font-medium text-accent">
                   <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
                   Voting open
@@ -191,7 +184,7 @@ export default function EventDetailClient({
                 <OwnerControls
                   eventId={event.id}
                   isDraft={event.status === "draft"}
-                  isLive={!isClosed && !notStarted}
+                  isLive={!effectiveClosed && !notStarted}
                 />
               </div>
             ) : null}
@@ -202,9 +195,15 @@ export default function EventDetailClient({
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tabular-nums">
-              <span className="text-foreground">
-                {numberFormat(totalBallots)} {totalBallots === 1 ? "ballot" : "ballots"}
-              </span>
+              {snapshot.talliesVisible ? (
+                <span className="text-foreground">
+                  <AnimatedNumber value={totalBallots} format="integer" className="tabular-nums" />{" "}
+                  {totalBallots === 1 ? "ballot" : "ballots"}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Results hidden until the poll closes</span>
+              )}
+              <LiveStatus status={liveStatus} />
               <span className="text-subtle-foreground">
                 {notStarted
                   ? `Opens ${dateFormat(event.opensAt)}`
@@ -225,7 +224,7 @@ export default function EventDetailClient({
                   {options.map((option) => {
                     const selectionIndex = selectedIds.indexOf(option.id);
                     const selected = selectionIndex >= 0;
-                    const count = counts.get(option.id) ?? 0;
+                    const count = snapshot.counts[option.id] ?? 0;
                     const share = totalBallots === 0 ? 0 : count / totalBallots;
                     const disabled =
                       !canVote ||
@@ -290,24 +289,23 @@ export default function EventDetailClient({
                                 {option.description}
                               </span>
                             ) : null}
-                            <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-surface-3">
-                              <span
-                                className={cn(
-                                  "block h-full origin-left",
-                                  selected ? "bg-accent" : "bg-foreground/30",
-                                )}
-                                style={{ transform: `scaleX(${Math.min(share, 1)})` }}
-                              />
-                            </span>
+                            {snapshot.talliesVisible ? (
+                              <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-surface-3">
+                                <ResultBar share={Math.min(share, 1)} selected={selected} />
+                              </span>
+                            ) : null}
                           </span>
-                          <span className="shrink-0 text-right">
-                            <span className="block font-mono text-xl font-bold tabular-nums text-foreground">
-                              {percentFormat(share)}
+                          {snapshot.talliesVisible ? (
+                            <span className="shrink-0 text-right">
+                              <span className="block font-mono text-xl font-bold tabular-nums text-foreground">
+                                <AnimatedNumber value={share} format="percent" />
+                              </span>
+                              <span className="block font-mono text-xs tabular-nums text-muted-foreground">
+                                <AnimatedNumber value={count} format="integer" />{" "}
+                                {event.pickType === "top_n" ? "picked" : "votes"}
+                              </span>
                             </span>
-                            <span className="block font-mono text-xs tabular-nums text-muted-foreground">
-                              {numberFormat(count)} {event.pickType === "top_n" ? "picked" : "votes"}
-                            </span>
-                          </span>
+                          ) : null}
                         </motion.button>
                       </li>
                     );
@@ -381,7 +379,7 @@ export default function EventDetailClient({
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-muted-foreground">Ballots</dt>
                   <dd className="font-mono font-bold tabular-nums text-foreground">
-                    {numberFormat(totalBallots)}
+                      <AnimatedNumber value={totalBallots} format="integer" />
                   </dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
@@ -408,7 +406,7 @@ export default function EventDetailClient({
         </div>
       </div>
 
-      {!hasVoted && !isClosed ? (
+      {!hasVoted && !effectiveClosed ? (
         <div className="sticky bottom-0 border-t border-border bg-background">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-muted-foreground">
@@ -421,7 +419,7 @@ export default function EventDetailClient({
             <button
               type="button"
               onClick={() => void castVote()}
-              disabled={pending || selectedIds.length === 0 || isClosed}
+              disabled={pending || selectedIds.length === 0 || effectiveClosed}
               className="rounded-md bg-accent-hover px-5 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-surface-3 disabled:text-muted-foreground"
             >
               {pending ? "Submitting…" : "Submit final ballot"}

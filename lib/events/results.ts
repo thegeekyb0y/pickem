@@ -32,6 +32,10 @@ export function areTalliesVisible(event: Pick<ResultEvent, "status">) {
   return event.status !== "draft";
 }
 
+export function hideSnapshotTallies(snapshot: ResultSnapshot): ResultSnapshot {
+  return { ...snapshot, version: 0, totalBallots: 0, counts: {}, talliesVisible: false };
+}
+
 export async function getResultSnapshot(event: ResultEvent): Promise<ResultSnapshot> {
   const totalQuery = db
     .select({ total: count() })

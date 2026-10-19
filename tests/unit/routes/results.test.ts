@@ -34,6 +34,13 @@ vi.mock("@/lib/events/access", () => ({
 }));
 vi.mock("@/lib/events/results", () => ({
   areTalliesVisible: (event: { status: string }) => event.status !== "draft",
+  hideSnapshotTallies: (value: typeof mocks.snapshot) => ({
+    ...value,
+    version: 0,
+    totalBallots: 0,
+    counts: {},
+    talliesVisible: false,
+  }),
   getResultSnapshot: vi.fn(async () => mocks.snapshot),
 }));
 vi.mock("@/lib/live/result-cache", () => ({
