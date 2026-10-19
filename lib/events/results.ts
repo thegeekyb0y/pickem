@@ -42,7 +42,7 @@ export async function getResultSnapshot(event: ResultEvent): Promise<ResultSnaps
     .from(votes)
     .where(and(eq(votes.eventId, event.id), eq(votes.isSubmitted, true)));
   const nowQuery = db
-    .select({ now: sql<Date>`clock_timestamp()` })
+    .select({ now: sql<string | Date>`clock_timestamp()` })
     .from(events)
     .where(eq(events.id, event.id));
 
@@ -70,7 +70,7 @@ export async function getResultSnapshot(event: ResultEvent): Promise<ResultSnaps
       row.optionId ? [[row.optionId, Number(row.selections)] as const] : [],
     ),
   );
-  const serverNow = clockRow?.now ?? new Date();
+  const serverNow = clockRow?.now ? new Date(clockRow.now) : new Date();
   const closed =
     event.status === "closed" ||
     event.status === "cancelled" ||

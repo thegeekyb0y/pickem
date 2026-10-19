@@ -194,10 +194,10 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
       }
 
       const [{ dbNow }] = await tx
-        .select({ dbNow: sql<Date>`clock_timestamp()` })
+        .select({ dbNow: sql<string | Date>`clock_timestamp()` })
         .from(events)
         .where(eq(events.id, event.id));
-      if (!isVoteWindowOpen(event, dbNow)) {
+      if (!isVoteWindowOpen(event, new Date(dbNow))) {
         return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
       }
 
@@ -300,10 +300,10 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
 
       // A transaction that spans the deadline is rolled back rather than landing late.
       const [{ finalDbNow }] = await tx
-        .select({ finalDbNow: sql<Date>`clock_timestamp()` })
+        .select({ finalDbNow: sql<string | Date>`clock_timestamp()` })
         .from(events)
         .where(eq(events.id, event.id));
-      if (event.closesAt <= finalDbNow) throw new VoteWindowClosedError();
+      if (event.closesAt <= new Date(finalDbNow)) throw new VoteWindowClosedError();
 
       return { ok: true, voteId: ballot.id };
     });

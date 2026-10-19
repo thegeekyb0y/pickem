@@ -113,8 +113,33 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
   }));
 }
 
-export const getDiscoverablePolls = unstable_cache(
-  queryDiscoverablePolls,
+export type CachedEventListItem = Omit<EventListItem, "opensAt" | "closesAt"> & {
+  opensAt: string;
+  closesAt: string;
+};
+
+export function hydrateEventListItem(row: CachedEventListItem): EventListItem {
+  return {
+    ...row,
+    opensAt: new Date(row.opensAt),
+    closesAt: new Date(row.closesAt),
+  };
+}
+
+const getCachedDiscoverablePolls = unstable_cache(
+  async (): Promise<CachedEventListItem[]> => {
+    const rows = await queryDiscoverablePolls();
+    return rows.map((row) => ({
+      ...row,
+      opensAt: row.opensAt.toISOString(),
+      closesAt: row.closesAt.toISOString(),
+    }));
+  },
   ["home-discoverable-polls-v1"],
   { tags: ["home:polls"], revalidate: 45 },
 );
+
+export async function getDiscoverablePolls(): Promise<EventListItem[]> {
+  const rows = await getCachedDiscoverablePolls();
+  return rows.map(hydrateEventListItem);
+}

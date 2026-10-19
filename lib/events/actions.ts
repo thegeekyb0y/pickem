@@ -349,22 +349,23 @@ export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
     if (!event) return false;
 
     const [{ now }] = await tx
-      .select({ now: sql<Date>`clock_timestamp()` })
+      .select({ now: sql<string | Date>`clock_timestamp()` })
       .from(events)
       .where(eq(events.id, event.id));
+    const closedAt = new Date(now);
     if (
       event.status === "draft" ||
       event.status === "cancelled" ||
       event.status === "closed" ||
-      event.opensAt > now ||
-      event.closesAt <= now
+      event.opensAt > closedAt ||
+      event.closesAt <= closedAt
     ) {
       return false;
     }
 
     await tx
       .update(events)
-      .set({ status: "closed", closesAt: now, updatedAt: now })
+      .set({ status: "closed", closesAt: closedAt, updatedAt: closedAt })
       .where(eq(events.id, event.id));
     return true;
   });

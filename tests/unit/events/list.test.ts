@@ -4,6 +4,8 @@ import {
   CLOSING_SOON_MS,
   getEventPhase,
   groupHomePolls,
+  hydrateEventListItem,
+  type CachedEventListItem,
   type EventListItem,
 } from "@/lib/events/list";
 
@@ -37,6 +39,22 @@ describe("getEventPhase", () => {
     expect(getEventPhase(item({ status: "closed" }), now)).toBe("closed");
     expect(getEventPhase(item({ status: "cancelled" }), now)).toBe("cancelled");
     expect(getEventPhase(item({ status: "draft" }), now)).toBe("draft");
+  });
+});
+
+describe("hydrateEventListItem", () => {
+  it("restores Date objects after the cache serializes timestamps to strings", () => {
+    const cached: CachedEventListItem = {
+      ...item(),
+      opensAt: "2026-10-20T11:59:00.000Z",
+      closesAt: "2026-10-22T12:00:00.000Z",
+    };
+
+    const hydrated = hydrateEventListItem(cached);
+
+    expect(hydrated.opensAt).toBeInstanceOf(Date);
+    expect(hydrated.closesAt).toBeInstanceOf(Date);
+    expect(hydrated.closesAt.toISOString()).toBe(cached.closesAt);
   });
 });
 
