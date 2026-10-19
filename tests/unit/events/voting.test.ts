@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isVoteWindowOpen } from "@/lib/events/ballot-rules";
+import { resultSnapshotVersion } from "@/lib/events/results";
 
 const opensAt = new Date("2026-10-20T11:00:00.000Z");
 const closesAt = new Date("2026-10-20T13:00:00.000Z");
@@ -23,5 +24,13 @@ describe("isVoteWindowOpen", () => {
     expect(isVoteWindowOpen(poll("closed"), new Date("2026-10-20T12:00:00Z"))).toBe(false);
     expect(isVoteWindowOpen(poll("cancelled"), new Date("2026-10-20T12:00:00Z"))).toBe(false);
     expect(isVoteWindowOpen(poll("draft"), new Date("2026-10-20T12:00:00Z"))).toBe(false);
+  });
+});
+
+describe("result snapshot version", () => {
+  it("uses the immutable ballot count as a monotonic version", () => {
+    expect(resultSnapshotVersion(0)).toBe(0);
+    expect(resultSnapshotVersion(1)).toBe(1);
+    expect(resultSnapshotVersion(12)).toBe(12);
   });
 });

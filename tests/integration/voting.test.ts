@@ -30,12 +30,14 @@ if (enabled && testUrl) process.env.DATABASE_URL = testUrl;
 
 let sql: ReturnType<typeof postgres> | undefined;
 let submitVote: typeof import("@/lib/events/voting").submitVote | undefined;
+let getResultSnapshot: typeof import("@/lib/events/results").getResultSnapshot | undefined;
 const eventIds: string[] = [];
 const userId = mocks.userId;
 
 if (enabled && testUrl) {
   sql = postgres(testUrl, { max: 2, prepare: false });
   ({ submitVote } = await import("@/lib/events/voting"));
+  ({ getResultSnapshot } = await import("@/lib/events/results"));
 }
 
 async function createPoll({
@@ -160,5 +162,33 @@ describe.skipIf(!enabled)("submitVote integration", () => {
       ok: false,
       reason: "locked",
     });
+  });
+
+  it("keeps snapshot version monotonic by rejecting submitted-ballot deletion", async () => {
+    if (!sql || !submitVote || !getResultSnapshot) return;
+    const poll = await createPoll();
+    const submitted = await submitVote({ eventId: poll.eventId, optionIds: [poll.optionIds[0]] });
+    expect(submitted.ok).toBe(true);
+
+    const [row] = await sql`
+      select id, status, pick_type, opens_at, closes_at from events where id = ${poll.eventId}
+    `;
+    const event = {
+      id: row.id as string,
+      status: row.status as string,
+      pickType: row.pick_type as "single" | "top_n",
+      opensAt: row.opens_at as Date,
+      closesAt: row.closes_at as Date,
+    };
+    const before = await getResultSnapshot(event);
+    expect(before.totalBallots).toBe(1);
+    expect(before.version).toBe(1);
+
+    await expect(sql`delete from votes where id = ${submitted.ok ? submitted.voteId : ""}`).rejects.toThrow(
+      /Submitted votes cannot be deleted/i,
+    );
+    const after = await getResultSnapshot(event);
+    expect(after.version).toBeGreaterThanOrEqual(before.version);
+    expect(after.version).toBe(after.totalBallots);
   });
 });

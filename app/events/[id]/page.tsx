@@ -1,6 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { and, count, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import {
@@ -11,6 +11,7 @@ import {
   votes,
 } from "@/db/schema/app";
 import { GUEST_COOKIE, hashGuestToken, hasEventUnlock } from "@/lib/events/access";
+import { getResultSnapshot } from "@/lib/events/results";
 import PasscodeGate from "./passcode-gate";
 import EventDetailClient from "./event-detail-client";
 
@@ -39,7 +40,8 @@ export default async function EventDetailPage({
     return <PasscodeGate eventId={event.id} />;
   }
 
-  const now = new Date();
+  const snapshot = await getResultSnapshot(event);
+  const now = new Date(snapshot.serverNow);
   const userId = session?.user?.id ?? null;
   let viewerVote: typeof votes.$inferSelect | undefined;
 
@@ -72,30 +74,6 @@ export default async function EventDetailPage({
     where: eq(options.eventId, event.id),
     orderBy: (table, { asc }) => [asc(table.sortOrder)],
   });
-  const [{ totalBallots }] = await db
-    .select({ totalBallots: count() })
-    .from(votes)
-    .where(eq(votes.eventId, event.id));
-
-  let selectedCounts: Map<string, number>;
-  if (event.pickType === "single") {
-    const rows = await db
-      .select({ optionId: votes.optionId, selections: count() })
-      .from(votes)
-      .where(eq(votes.eventId, event.id))
-      .groupBy(votes.optionId);
-    selectedCounts = new Map(
-      rows.flatMap((row) => (row.optionId ? [[row.optionId, row.selections] as const] : [])),
-    );
-  } else {
-    const rows = await db
-      .select({ optionId: votePicks.optionId, selections: count() })
-      .from(votePicks)
-      .where(eq(votePicks.eventId, event.id))
-      .groupBy(votePicks.optionId);
-    selectedCounts = new Map(rows.map((row) => [row.optionId, row.selections] as const));
-  }
-
   const previousRanks = viewerVote
     ? event.pickType === "single"
       ? viewerVote.optionId
@@ -131,9 +109,9 @@ export default async function EventDetailPage({
       }))}
       selectionCounts={optionRows.map((option) => ({
         optionId: option.id,
-        count: selectedCounts.get(option.id) ?? 0,
+        count: snapshot.counts[option.id] ?? 0,
       }))}
-      totalBallots={totalBallots}
+      totalBallots={snapshot.totalBallots}
       initialVoteIds={previousRanks}
       isLoggedIn={userId != null}
       notStarted={event.opensAt > now}
