@@ -7,6 +7,7 @@ import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { submitVote } from "@/lib/events/voting";
+import ShareButton from "./share-button";
 
 type EventData = {
   id: string;
@@ -176,9 +177,12 @@ export default function EventDetailClient({
               )}
             </div>
 
-            <h1 className="mt-3 text-balance text-3xl font-bold leading-10 sm:text-4xl sm:leading-[3rem]">
-              {event.title}
-            </h1>
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+              <h1 className="text-balance text-3xl font-bold leading-10 sm:text-4xl sm:leading-[3rem]">
+                {event.title}
+              </h1>
+              <ShareButton title={event.title} />
+            </div>
             {event.description ? (
               <p className="mt-3 max-w-2xl text-pretty text-base leading-6 text-muted-foreground">
                 {event.description}
