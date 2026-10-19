@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.5",
+    "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.38.4",
     "@vercel/blob": "^2.8.0",
     "better-auth": "^1.7.5",

@@ -12,6 +12,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import {
+  getClientIp,
+  limitPasscodeAttempt,
+  limitVoteByIdentity,
+  limitVoteByIp,
+} from "@/lib/rate-limit";
+import {
   eventPasscodeUnlocks,
   events,
   options,
@@ -47,6 +53,7 @@ export type VoteResult =
         | "locked"
         | "already-voted"
         | "unauthenticated"
+        | "rate-limited"
         | "error";
       message: string;
     };
@@ -73,6 +80,10 @@ export async function unlockPrivateEvent(
   const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
   if (!event || event.visibility !== "passcode" || !event.passcodeHash) {
     return { ok: false, message: "This private poll is unavailable." };
+  }
+  const requestHeaders = await headers();
+  if (!(await limitPasscodeAttempt(getClientIp(requestHeaders), eventId))) {
+    return { ok: false, message: "Too many attempts. Please wait before trying again." };
   }
   if (!(await verifyPasscode(event.passcodeHash, passcode))) {
     return { ok: false, message: "That passcode didn’t match. Try again." };
@@ -117,6 +128,17 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
   }
   if (new Set(input.optionIds).size !== input.optionIds.length) {
     return { ok: false, reason: "invalid", message: "An option can only be selected once." };
+  }
+
+  const requestHeaders = await headers();
+  const session = await auth.api.getSession({ headers: requestHeaders });
+  const userId = session?.user?.id ?? null;
+  const ip = getClientIp(requestHeaders);
+  if (!(await limitVoteByIp(ip))) {
+    return { ok: false, reason: "rate-limited", message: "Please wait before trying again." };
+  }
+  if (userId && !(await limitVoteByIdentity(`user:${userId}`, input.eventId))) {
+    return { ok: false, reason: "rate-limited", message: "Please wait before trying again." };
   }
 
   const event = await db.query.events.findFirst({ where: eq(events.id, input.eventId) });
@@ -171,8 +193,6 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
     };
   }
 
-  const session = await auth.api.getSession({ headers: await headers() });
-  const userId = session?.user?.id ?? null;
   let guestSessionId: string | null = null;
   let guestHandle: string | null = null;
   let guestHandlePlatform: "instagram" | "x" | null = null;
@@ -203,6 +223,10 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         path: "/",
         maxAge: 60 * 60 * 24 * 365,
       });
+    }
+
+    if (!(await limitVoteByIdentity(`guest:${token}`, event.id))) {
+      return { ok: false, reason: "rate-limited", message: "Please wait before trying again." };
     }
 
     const tokenHash = hashGuestToken(event.id, token);
