@@ -3,7 +3,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { headers } from "next/headers";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { put } from "@vercel/blob";
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
@@ -314,6 +314,10 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   });
 
   revalidatePath("/events/drafts");
+  if (input.saveAs === "publish") {
+    revalidateTag("home:polls", "max");
+    revalidatePath("/");
+  }
   return { ok: true, eventId, status };
 }
 
