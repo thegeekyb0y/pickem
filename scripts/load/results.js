@@ -16,7 +16,9 @@ export const options = {
 
 export default function resultsScenario() {
   const response = http.get(`${target.baseUrl}/api/events/${target.eventId}/results`, {
-    headers: { "x-client-id": `k6-${__VU}` },
+    // The route only accepts client ids of 12 characters or more, so this
+    // models one browser session per virtual user.
+    headers: { "x-client-id": `k6-session-${__VU}-000000` },
     tags: { endpoint: "results" },
   });
   check(response, {

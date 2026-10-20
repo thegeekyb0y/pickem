@@ -55,6 +55,25 @@ k6 run -e BASE_URL=https://pickem-git-live-results-team.vercel.app \
 
 The write test creates unique guest tokens per iteration and invokes the same `submitVote` action and DB triggers as the app. Seed/reset its poll on the Neon branch between runs. Never run it against production.
 
+## Local smoke run
+
+`scripts/load/guard-check.js` exercises the target rules without sending any traffic:
+
+```sh
+node scripts/load/guard-check.js
+```
+
+`scripts/load/seed.mjs` creates (and `--cleanup` removes) a disposable open poll in the branch database. It refuses to run when the target database host is the production database host.
+
+A local run against a development server needs `LOAD_TEST_ALLOW_LOCALHOST=1`, which only permits `localhost` and `127.0.0.1` over plain HTTP and still requires `LOAD_TEST_CONFIRM` and `NEON_BRANCH_CONFIRM`. Point `DATABASE_URL` at the branch for the server process, keep the production URL in the shell for the guard's host comparison, and never expose either value on a command line.
+
+Measured on a local server against a Neon branch (5–10 VUs, single connection pool):
+
+- `browse.js`: 0% failures, p95 ~5s. The home listing and event page each run several queries; the latency is dominated by the database round trip, not the page code.
+- `results.js`: 0% failures once the scenario sends a client id of 12 characters or more. A shorter id is rejected by the route, and every virtual user then shares one rate-limit bucket, which shows up as ~48% HTTP 429s.
+- `vote-spike.js`: 0% failures, but ballots queue (about 37 completed where 75 were expected) and p95 reaches ~35s. Ballots for one event take a row lock on that event, and the runtime opens a single database connection, so writes serialize. Raise the connection pool and re-measure before treating a preview run as representative of production capacity.
+
+
 ## Observe and verify
 
 Capture k6 p95/error rate, Vercel edge cache `HIT` ratio, function duration/invocations, Neon CU/CPU/connection/lock-wait metrics, Upstash commands, and rate-limit 429s. A successful latency run is not sufficient if the Neon branch is CPU-saturated or the Redis budget is exceeded.
