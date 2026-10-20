@@ -183,12 +183,25 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
 
   try {
     const result = await db.transaction(async (tx): Promise<VoteResult> => {
-      // Serialize vote submissions against owner close actions for this event.
+      // Voters take a shared lock (FOR KEY SHARE) on the poll, so ballots for
+      // the same poll do not serialize against each other.
+      //
+      // FOR KEY SHARE is used rather than FOR SHARE because the transaction
+      // may itself UPDATE the poll row (a scheduled poll flipping to open),
+      // and a NO KEY UPDATE conflicts with FOR SHARE. FOR KEY SHARE only
+      // conflicts with FOR UPDATE, so it leaves that update possible while
+      // still excluding the owner's exclusive close lock.
+      //
+      // The owner's close action takes FOR UPDATE, which conflicts with this
+      // lock. A ballot therefore either commits before the close starts, or it
+      // waits for the close to commit and is then rejected because the poll is
+      // no longer open. The deadline is enforced separately by the final
+      // clock check before the transaction commits.
       const [event] = await tx
         .select()
         .from(events)
         .where(eq(events.id, input.eventId))
-        .for("update");
+        .for("key share");
       if (!event) {
         return { ok: false, reason: "error", message: "This poll could not be found." };
       }
