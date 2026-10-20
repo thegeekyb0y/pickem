@@ -42,3 +42,8 @@ jobs:
         run: npx drizzle-kit migrate
       - run: npm run test:integration
       - run: npm run build
+      - name: Install the end-to-end browser
+        if: env.DATABASE_URL_TEST != ''
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        if: env.DATABASE_URL_TEST != ''

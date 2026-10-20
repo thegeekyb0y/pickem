@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pickem
 
-## Getting Started
+A realtime pick'em app. People create polls, share a link, and friends vote.
+Results update live while voting is open, and a poll closes on its own schedule
+or early when the owner decides.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router, Turbopack) with **React 19** and **Tailwind CSS v4**
+- **PostgreSQL** on **Neon** via **Drizzle ORM**
+- **Better Auth** for sessions (Google OAuth, plus guest voting with no account)
+- **Upstash Redis** for rate limiting and the results cache
+- **Vitest** for unit and integration tests, **Playwright** for end-to-end tests
+- **k6** for load scenarios
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in the values
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Runtime database URL. Use Neon's **pooled** URL in production. |
+| `DATABASE_URL_POOLED` | Optional. Takes precedence over `DATABASE_URL` when set. |
+| `DATABASE_URL_DIRECT` | Direct (unpooled) URL. Required for migrations. |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Better Auth configuration. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth credentials. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Rate limiting and results cache. |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob, for option images. |
+| `DATABASE_POOL_MAX` | Optional. Connections per instance. Defaults to 5. |
+| `DATABASE_URL_TEST` | Disposable branch URL used by the test suites. |
+| `ALLOW_TEST_DB_MUTATION` | Must be `1` to let tests write to that branch. |
+| `LOAD_TEST_ALLOW_LOCALHOST`, `LOAD_TEST_SECRET` | Preview-only load-test route. |
 
-## Learn More
+### Database
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx drizzle-kit migrate        # applies drizzle/*.sql
+npx drizzle-kit generate       # creates a migration after a schema change
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Migrations must run against a **direct** connection, not the pooler.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Development server. |
+| `npm run build` / `npm run start` | Production build and server. |
+| `npm run lint` | ESLint. |
+| `npm run typecheck` | Generates route types, then runs `tsc --noEmit`. |
+| `npm test` | Unit and integration tests. |
+| `npm run test:integration` | Integration tests only. |
+| `npm run test:e2e` | Playwright end-to-end tests. |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Integration and end-to-end tests need `DATABASE_URL_TEST` and
+`ALLOW_TEST_DB_MUTATION=1`. They refuse to run when the target database is the
+production database.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## How it works
+
+A poll is an event with options, a voting window (`opens_at` / `closes_at`) and
+a visibility: `unlisted`, `discoverable`, or `passcode`.
+
+- **Voting** (`lib/events/voting.ts`) runs in one transaction. The ballot takes a
+  shared lock on the poll row, so voters never block each other; the owner's
+  "close early" action takes an exclusive lock, so a ballot either commits
+  before the close or is rejected. A final database-clock check rolls back any
+  ballot that would land after the closing time.
+- **Results** (`lib/events/results.ts`, `lib/live/result-cache.ts`) are versioned
+  by submitted ballot count, cached in Redis for a second while a poll is open
+  and for a day once it is closed, and served publicly through
+  `/api/events/[id]/results`. Passcode and draft polls stay private.
+- **Live updates** (`lib/live/`) poll that endpoint every couple of seconds and
+  animate the differences.
+
+See [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) for the design
+decisions and the reasoning behind them.
+
+## Load testing
+
+Guarded k6 scenarios live in [`scripts/load`](scripts/load/README.md). They
+only run against a Vercel preview backed by a disposable Neon branch, and the
+write scenario needs a secret header. See that README before running them.

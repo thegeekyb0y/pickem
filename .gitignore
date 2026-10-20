@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# private interview-prep notes (local only)
+docs/INTERVIEW_WALKTHROUGH.md
