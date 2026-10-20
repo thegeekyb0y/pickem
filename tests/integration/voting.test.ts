@@ -75,23 +75,27 @@ async function createPoll({
     values (${userId}, 'Pickem Integration', ${`${userId}@example.test`}, false)
     on conflict (id) do nothing
   `;
-  await sql`
-    insert into events (
-      id, creator_user_id, title, status, visibility, passcode_hash,
-      pick_type, max_picks, opens_at, closes_at
-    ) values (
-      ${eventId}, ${userId}, 'Integration poll', ${status}, ${visibility},
-      ${visibility === "passcode" ? "scrypt$testsalt$testhash" : null},
-      ${pickType}, ${maxPicks}, clock_timestamp() - interval '1 hour',
-      clock_timestamp() + interval '1 hour'
-    )
-  `;
-  for (const [index, optionId] of optionIds.entries()) {
-    await sql`
-      insert into options (id, event_id, label, sort_order)
-      values (${optionId}, ${eventId}, ${`Option ${index + 1}`}, ${index})
+  // The event and its options must be created in one transaction: the
+  // top-N constraint trigger is deferred to commit and counts the options.
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into events (
+        id, creator_user_id, title, status, visibility, passcode_hash,
+        pick_type, max_picks, opens_at, closes_at
+      ) values (
+        ${eventId}, ${userId}, 'Integration poll', ${status}, ${visibility},
+        ${visibility === "passcode" ? "scrypt$testsalt$testhash" : null},
+        ${pickType}, ${maxPicks}, clock_timestamp() - interval '1 hour',
+        clock_timestamp() + interval '1 hour'
+      )
     `;
-  }
+    for (const [index, optionId] of optionIds.entries()) {
+      await tx`
+        insert into options (id, event_id, label, sort_order)
+        values (${optionId}, ${eventId}, ${`Option ${index + 1}`}, ${index})
+      `;
+    }
+  });
   return { eventId, optionIds };
 }
 
@@ -114,6 +118,7 @@ describe.skipIf(!enabled)("submitVote integration", () => {
     for (const eventId of eventIds.splice(0)) {
       await sql`delete from events where id = ${eventId}`;
     }
+    await sql`delete from "user" where id = ${userId}`;
     mocks.cookies.clear();
   });
 

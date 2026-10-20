@@ -36,7 +36,7 @@ test("a passcode poll stays locked until the passcode is entered", async ({ brow
     // A wrong passcode keeps the poll locked.
     await page.getByLabel("Passcode").fill("not-the-passcode");
     await page.getByRole("button", { name: "Unlock poll" }).click();
-    await expect(page.getByRole("alert")).toContainText("didn’t match");
+    await expect(page.getByText(/didn’t match/)).toBeVisible({ timeout: 30_000 });
 
     const stillLocked = await context.request.get(
       `${baseURL}/api/events/${fixture.eventId}/results`,

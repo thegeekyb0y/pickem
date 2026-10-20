@@ -63,24 +63,28 @@ export async function createPollFixture(
     insert into "user" (id, name, email, email_verified)
     values (${userId}, 'Pickem E2E', ${email}, false)
   `;
-  await sql`
-    insert into events (
-      id, creator_user_id, title, description, status, visibility, passcode_hash,
-      pick_type, max_picks, opens_at, closes_at
-    ) values (
-      ${eventId}, ${userId}, ${`E2E poll ${eventId.slice(0, 8)}`},
-      'Playwright fixture', 'open', ${visibility},
-      ${passcode ? await hashPasscode(passcode) : null},
-      ${pickType}, ${maxPicks},
-      clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'
-    )
-  `;
-  for (const [index, optionId] of optionIds.entries()) {
-    await sql`
-      insert into options (id, event_id, label, sort_order)
-      values (${optionId}, ${eventId}, ${`E2E option ${index + 1}`}, ${index})
+  // The event and its options must be created in one transaction: the top-N
+  // constraint trigger is deferred to commit and counts the options.
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into events (
+        id, creator_user_id, title, description, status, visibility, passcode_hash,
+        pick_type, max_picks, opens_at, closes_at
+      ) values (
+        ${eventId}, ${userId}, ${`E2E poll ${eventId.slice(0, 8)}`},
+        'Playwright fixture', 'open', ${visibility},
+        ${passcode ? await hashPasscode(passcode) : null},
+        ${pickType}, ${maxPicks},
+        clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'
+      )
     `;
-  }
+    for (const [index, optionId] of optionIds.entries()) {
+      await tx`
+        insert into options (id, event_id, label, sort_order)
+        values (${optionId}, ${eventId}, ${`E2E option ${index + 1}`}, ${index})
+      `;
+    }
+  });
 
   return { eventId, userId, optionIds };
 }

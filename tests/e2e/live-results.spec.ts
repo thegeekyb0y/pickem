@@ -35,8 +35,9 @@ test("a second browser context receives live ballot updates without refresh", as
     await pageA.getByRole("button", { name: "E2E option 1" }).click();
     await pageA.getByLabel("Social handle").fill("pickem-e2e");
     await pageA.getByRole("button", { name: "Submit final ballot" }).click();
-    await expect(pageA.getByText(/Ballot submitted/)).toBeVisible();
-    await expect(pageB.getByTestId("ballot-count")).toContainText("1 ballot", { timeout: 10_000 });
+    // The dev server compiles the server action on first use, so allow time.
+    await expect(pageA.getByText(/Ballot submitted/)).toBeVisible({ timeout: 30_000 });
+    await expect(pageB.getByTestId("ballot-count")).toContainText("1 ballot", { timeout: 20_000 });
   } finally {
     await contextA?.close();
     await contextB?.close();
