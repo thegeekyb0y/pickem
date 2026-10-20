@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import { loadLocalEnv } from "./tests/helpers/local-env";
+
+// Read local values (DATABASE_URL_TEST) without printing them. Process
+// environment variables always win.
+loadLocalEnv();
 
 const baseURL = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const canRunAgainstTestBranch =
@@ -19,7 +24,8 @@ export default defineConfig({
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  timeout: 30_000,
+  // Generous: a dev server compiles server actions on first use.
+  timeout: 90_000,
   reporter: "list",
   use: {
     baseURL,
