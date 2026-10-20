@@ -85,6 +85,29 @@ export function resolveProductionDatabaseHost(env = process.env) {
 }
 
 /**
+ * Every hostname that identifies the production database. The pooled and
+ * direct Neon URLs for the same database have different hostnames, so all
+ * known forms are compared.
+ */
+export function resolveProductionDatabaseHosts(env = process.env) {
+  const hosts = new Set();
+
+  const add = (value) => {
+    const host = hostnameOf(value);
+    if (host) hosts.add(host);
+  };
+
+  add(env.PRODUCTION_DATABASE_HOST);
+  add(env.PRODUCTION_DATABASE_URL);
+  add(env.DATABASE_URL);
+  add(env.DATABASE_URL_POOLED);
+  add(readDotEnvValue("DATABASE_URL"));
+  add(readDotEnvValue("DATABASE_URL_POOLED"));
+
+  return hosts;
+}
+
+/**
  * Resolves the target (test) database host from DATABASE_URL_TEST, falling back
  * to DATABASE_URL only when the caller explicitly allows it.
  */
@@ -104,14 +127,15 @@ export function resolveTargetDatabaseHost(env = process.env, { allowRuntimeFallb
 }
 
 /**
- * Throws when the target database host is the production database host, or when
- * the production host cannot be determined (fail closed). Messages never
- * include a hostname or a connection string.
+ * Throws when the target database host is one of the production database
+ * hosts, or when the production host cannot be determined (fail closed).
+ * Messages never include a hostname or a connection string.
  */
 export function assertNotProductionDatabase({
   label = "test run",
   targetHost,
   productionHost,
+  productionHosts,
 }) {
   if (!targetHost) {
     throw new Error(
@@ -120,14 +144,17 @@ export function assertNotProductionDatabase({
     );
   }
 
-  if (!productionHost) {
+  const known = new Set(productionHosts ?? []);
+  if (productionHost) known.add(productionHost);
+
+  if (known.size === 0) {
     throw new Error(
       `Refusing to run ${label}: the production database host is unknown. ` +
         "Set PRODUCTION_DATABASE_HOST (or PRODUCTION_DATABASE_URL) so the guard can compare hosts.",
     );
   }
 
-  if (targetHost === productionHost) {
+  if (known.has(targetHost)) {
     throw new Error(
       `Refusing to run ${label}: the target database host matches the production database host. ` +
         "Use a disposable branch with a different host.",
@@ -146,6 +173,11 @@ export function guardAgainstProductionDatabase({
   allowRuntimeFallback = false,
 } = {}) {
   const targetHost = resolveTargetDatabaseHost(env, { allowRuntimeFallback });
-  const productionHost = resolveProductionDatabaseHost(env);
-  return assertNotProductionDatabase({ label, targetHost, productionHost });
+  const productionHosts = resolveProductionDatabaseHosts(env);
+  return assertNotProductionDatabase({
+    label,
+    targetHost,
+    productionHost: resolveProductionDatabaseHost(env),
+    productionHosts,
+  });
 }

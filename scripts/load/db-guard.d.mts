@@ -6,6 +6,8 @@ export function hostnameOf(connectionString: string | undefined | null): string 
 
 export function resolveProductionDatabaseHost(env?: GuardEnv): string | null;
 
+export function resolveProductionDatabaseHosts(env?: GuardEnv): Set<string>;
+
 export function resolveTargetDatabaseHost(
   env?: GuardEnv,
   options?: { allowRuntimeFallback?: boolean },
@@ -14,7 +16,8 @@ export function resolveTargetDatabaseHost(
 export function assertNotProductionDatabase(options: {
   label?: string;
   targetHost: string | null;
-  productionHost: string | null;
+  productionHost?: string | null;
+  productionHosts?: Set<string>;
 }): true;
 
 export function guardAgainstProductionDatabase(options?: {

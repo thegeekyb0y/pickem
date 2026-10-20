@@ -3,6 +3,7 @@ import {
   assertNotProductionDatabase,
   hostnameOf,
   resolveProductionDatabaseHost,
+  resolveProductionDatabaseHosts,
   resolveTargetDatabaseHost,
   type GuardEnv,
 } from "../../../scripts/load/db-guard.mjs";
@@ -50,6 +51,17 @@ describe("database host resolution", () => {
 
     expect(resolveTargetDatabaseHost(env)).toBe("branch.example.com");
   });
+
+  it("collects every hostname that identifies the production database", () => {
+    const env = {
+      DATABASE_URL: "postgresql://u:p@prod.example.com/db",
+      DATABASE_URL_POOLED: "postgresql://u:p@prod-pooler.example.com/db",
+    } as GuardEnv;
+
+    const hosts = resolveProductionDatabaseHosts(env);
+    expect(hosts.has("prod.example.com")).toBe(true);
+    expect(hosts.has("prod-pooler.example.com")).toBe(true);
+  });
 });
 
 describe("assertNotProductionDatabase", () => {
@@ -88,6 +100,17 @@ describe("assertNotProductionDatabase", () => {
         productionHost: "db.example.com",
       }),
     ).toBe(true);
+  });
+
+  it("refuses when the target host matches any known production host", () => {
+    expect(() =>
+      assertNotProductionDatabase({
+        label: "the integration suite",
+        targetHost: "prod-pooler.example.com",
+        productionHost: "prod.example.com",
+        productionHosts: new Set(["prod.example.com", "prod-pooler.example.com"]),
+      }),
+    ).toThrow(/matches the production database host/);
   });
 
   it("never includes a connection string in the failure message", () => {

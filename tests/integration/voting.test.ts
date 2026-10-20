@@ -3,9 +3,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   assertNotProductionDatabase,
   resolveProductionDatabaseHost,
+  resolveProductionDatabaseHosts,
   resolveTargetDatabaseHost,
 } from "../../scripts/load/db-guard.mjs";
-import { resolveTestDatabaseUrl } from "../helpers/local-env";
+import { resolveTestDatabaseUrl, applyTestDatabaseUrl } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({ userId: "pickem-integration-user", cookies: new Map<string, string>() }));
 
@@ -38,8 +39,9 @@ if (enabled && testUrl) {
     label: "the integration suite",
     targetHost: resolveTargetDatabaseHost(),
     productionHost: resolveProductionDatabaseHost(),
+    productionHosts: resolveProductionDatabaseHosts(),
   });
-  process.env.DATABASE_URL = testUrl;
+  applyTestDatabaseUrl(testUrl);
 }
 
 let sql: ReturnType<typeof postgres> | undefined;
