@@ -1,5 +1,11 @@
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  assertNotProductionDatabase,
+  resolveProductionDatabaseHost,
+  resolveTargetDatabaseHost,
+} from "../../scripts/load/db-guard.mjs";
+import { resolveTestDatabaseUrl } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({ userId: "pickem-integration-user", cookies: new Map<string, string>() }));
 
@@ -24,9 +30,17 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const testUrl = process.env.DATABASE_URL_TEST;
+const testUrl = resolveTestDatabaseUrl();
 const enabled = Boolean(testUrl && process.env.ALLOW_TEST_DB_MUTATION === "1");
-if (enabled && testUrl) process.env.DATABASE_URL = testUrl;
+if (enabled && testUrl) {
+  // Pre-flight: never run against the production database host.
+  assertNotProductionDatabase({
+    label: "the integration suite",
+    targetHost: resolveTargetDatabaseHost(),
+    productionHost: resolveProductionDatabaseHost(),
+  });
+  process.env.DATABASE_URL = testUrl;
+}
 
 let sql: ReturnType<typeof postgres> | undefined;
 let submitVote: typeof import("@/lib/events/voting").submitVote | undefined;

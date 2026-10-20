@@ -14,6 +14,9 @@ jobs:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/pickem
       DATABASE_URL_TEST: ${{ secrets.NEON_TEST_DATABASE_URL }}
       ALLOW_TEST_DB_MUTATION: "1"
+      # Hostname only (no credentials) so the pre-flight guard can refuse to
+      # run the suites against the production database host.
+      PRODUCTION_DATABASE_HOST: ${{ secrets.NEON_PRODUCTION_DATABASE_HOST }}
       BETTER_AUTH_SECRET: ci-only-not-a-production-secret
       BETTER_AUTH_URL: http://127.0.0.1:3000
       GOOGLE_CLIENT_ID: ci-placeholder

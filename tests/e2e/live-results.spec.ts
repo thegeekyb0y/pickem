@@ -1,48 +1,34 @@
-import postgres from "postgres";
 import { expect, test } from "@playwright/test";
+import {
+  assertE2eTargetIsNotProduction,
+  connectToTestDatabase,
+  createPollFixture,
+  e2eEnabled,
+  removePollFixture,
+} from "./support/poll-fixtures";
 
-const testDatabaseUrl = process.env.DATABASE_URL_TEST;
-const enabled = process.env.ALLOW_TEST_DB_MUTATION === "1" && Boolean(testDatabaseUrl);
+test.skip(!e2eEnabled, "Requires DATABASE_URL_TEST and ALLOW_TEST_DB_MUTATION=1");
 
-test.skip(!enabled, "Requires DATABASE_URL_TEST and ALLOW_TEST_DB_MUTATION=1");
+test.beforeAll(() => {
+  if (e2eEnabled) assertE2eTargetIsNotProduction();
+});
 
-test("a second browser context receives live ballot updates without refresh", async ({ browser, baseURL }) => {
-  if (!testDatabaseUrl || !baseURL) return;
-  const sql = postgres(testDatabaseUrl, { max: 1, prepare: false });
-  const eventId = crypto.randomUUID();
-  const userId = `pickem-e2e-${crypto.randomUUID()}`;
-  const optionIds = [crypto.randomUUID(), crypto.randomUUID()];
-  const email = `${userId}@example.test`;
+test("a second browser context receives live ballot updates without refresh", async ({
+  browser,
+  baseURL,
+}) => {
+  if (!baseURL) return;
+  const sql = connectToTestDatabase();
+  const fixture = await createPollFixture(sql);
   let contextA: Awaited<ReturnType<typeof browser.newContext>> | undefined;
   let contextB: Awaited<ReturnType<typeof browser.newContext>> | undefined;
 
   try {
-    await sql`
-      insert into "user" (id, name, email, email_verified)
-      values (${userId}, 'Pickem E2E', ${email}, false)
-    `;
-    await sql`
-      insert into events (
-        id, creator_user_id, title, description, status, visibility,
-        pick_type, max_picks, opens_at, closes_at
-      ) values (
-        ${eventId}, ${userId}, ${`Live update test ${eventId.slice(0, 8)}`},
-        'Playwright live results fixture', 'open', 'discoverable', 'single', 1,
-        clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'
-      )
-    `;
-    for (const [index, optionId] of optionIds.entries()) {
-      await sql`
-        insert into options (id, event_id, label, sort_order)
-        values (${optionId}, ${eventId}, ${`E2E option ${index + 1}`}, ${index})
-      `;
-    }
-
     contextA = await browser.newContext();
     contextB = await browser.newContext();
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
-    const eventUrl = `${baseURL}/events/${eventId}`;
+    const eventUrl = `${baseURL}/events/${fixture.eventId}`;
     await Promise.all([pageA.goto(eventUrl), pageB.goto(eventUrl)]);
 
     await expect(pageB.getByTestId("ballot-count")).toContainText("0 ballots");
@@ -54,8 +40,7 @@ test("a second browser context receives live ballot updates without refresh", as
   } finally {
     await contextA?.close();
     await contextB?.close();
-    await sql`delete from events where id = ${eventId}`;
-    await sql`delete from "user" where id = ${userId}`;
+    await removePollFixture(sql, fixture);
     await sql.end();
   }
 });
