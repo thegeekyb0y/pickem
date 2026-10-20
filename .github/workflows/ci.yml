@@ -23,14 +23,14 @@ jobs:
       RATE_LIMIT_HASH_SECRET: ci-only-rate-limit-secret
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npx tsc --noEmit
+      - run: npm run typecheck
       - run: npm test
       - name: Migrate the disposable test database
         if: env.DATABASE_URL_TEST != ''
