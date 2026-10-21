@@ -19,6 +19,8 @@ const connectionUrl = process.env.DATABASE_URL!;
 const client = postgres(connectionUrl, {
   // Neon transaction-pooler URLs require prepared statements to be disabled.
   prepare: false,
+  // Names the connection so it can be identified in pg_stat_activity.
+  connection: { application_name: "pickem" },
   // Small per instance: serverless instances scale horizontally, so the total
   // client connection count is instances x max. A low value keeps that within
   // the pooler's budget while still allowing a request to run more than one

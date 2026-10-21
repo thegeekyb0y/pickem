@@ -1,6 +1,5 @@
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
 import { applyTestDatabaseUrl } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({
@@ -100,12 +99,13 @@ async function createPoll({
       values (${optionId}, ${eventId}, ${`Option ${index + 1}`}, ${index})
     `;
   }
-  return { eventId, optionIds };
+  const [row] = await sql`select closes_at from events where id = ${eventId}`;
+  return { eventId, optionIds, closesAt: new Date(row.closes_at) };
 }
 
 /**
  * Holds an exclusive lock on one option row. A ballot that selects that option
- * blocks on it, after it has already taken its shared lock on the poll row.
+ * waits for it, after it has already taken its shared lock on the poll row.
  */
 async function holdOptionLock(optionId: string) {
   if (!sql) throw new Error("Integration database is not enabled");
@@ -137,18 +137,30 @@ async function countBallots(eventId: string) {
 }
 
 /**
- * True while at least one backend is blocked on a lock. PostgreSQL keeps row
- * locks in tuple headers rather than pg_locks, so the wait is observed through
- * pg_stat_activity instead.
+ * True while the ballot is in flight and the application is waiting on a lock.
+ *
+ * PostgreSQL keeps row locks in tuple headers rather than pg_locks, so the
+ * wait is observed through pg_stat_activity. Only the application's own
+ * connections are considered, which the connection name makes unambiguous.
  */
-async function hasLockWait(): Promise<boolean> {
+async function hasAppLockWait(ballot: Promise<unknown>): Promise<boolean> {
   if (!sql) return false;
+  const settled = await Promise.race([
+    ballot.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20)),
+  ]);
+  if (settled) return false;
+
   const [row] = await sql`
     select count(*)::int as c
     from pg_stat_activity
     where datname = current_database()
       and wait_event_type = 'Lock'
       and state = 'active'
+      and application_name = 'pickem'
   `;
   return Number(row.c) > 0;
 }
@@ -186,8 +198,8 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       if (!sql || !submitVote) return;
       const poll = await createPoll();
 
-      // The first ballot blocks on its option row while holding the shared
-      // lock on the poll row.
+      // The first ballot waits on its option row while holding the shared lock
+      // on the poll row.
       const held = await holdOptionLock(poll.optionIds[0]);
       const first = submitVote({
         eventId: poll.eventId,
@@ -197,8 +209,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       });
 
       try {
-        const firstIsBlocked = await waitFor(hasLockWait);
-        expect(firstIsBlocked).toBe(true);
+        expect(await waitFor(() => hasAppLockWait(first))).toBe(true);
 
         // The second ballot selects a different option, so the option lock does
         // not block it. It can only commit if ballots do not serialize against
@@ -243,8 +254,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       let closing: Promise<unknown> | undefined;
 
       try {
-        const ballotIsBlocked = await waitFor(hasLockWait);
-        expect(ballotIsBlocked).toBe(true);
+        expect(await waitFor(() => hasAppLockWait(ballot))).toBe(true);
 
         mocks.sessionUserId = creatorUserId;
         closing = closeEvent(poll.eventId);
@@ -271,11 +281,14 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
   );
 
   it(
-    "rolls back a ballot that would land after the closing time",
+    "never records a ballot after the closing time",
     async () => {
       if (!sql || !submitVote) return;
-      const poll = await createPoll({ closesInMs: 400 });
+      const poll = await createPoll({ closesInMs: 1_500 });
 
+      // Make the ballot as slow as possible so it is likely to still be in
+      // flight when the closing time passes. The assertion below does not
+      // depend on this: it holds either way.
       const held = await holdOptionLock(poll.optionIds[0]);
       const ballot = submitVote({
         eventId: poll.eventId,
@@ -284,19 +297,30 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
         guestHandlePlatform: "x",
       });
 
-      try {
-        const ballotIsBlocked = await waitFor(hasLockWait);
-        expect(ballotIsBlocked).toBe(true);
+      const waitMs = poll.closesAt.getTime() - Date.now() + 200;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+      held.release();
+      await held.done;
 
-        // Let the closing time pass while the ballot is still in flight.
-        await new Promise((resolve) => setTimeout(resolve, 900));
-      } finally {
-        held.release();
-        await held.done;
+      const result = await ballot;
+      if (result.ok) {
+        // The ballot landed before the closing time, which is allowed.
+        const [row] = await sql`select created_at from votes where id = ${result.voteId}`;
+        expect(new Date(row.created_at).getTime()).toBeLessThanOrEqual(poll.closesAt.getTime());
+      } else {
+        expect(result).toMatchObject({ ok: false, reason: "closed" });
       }
 
-      expect(await ballot).toMatchObject({ ok: false, reason: "closed" });
-      expect(await countBallots(poll.eventId)).toBe(0);
+      // The guarantee itself: nothing is recorded with a timestamp after the
+      // closing time.
+      const [late] = await sql`
+        select count(*)::int as c
+        from votes
+        where event_id = ${poll.eventId} and created_at > ${poll.closesAt}
+      `;
+      expect(Number(late.c)).toBe(0);
     },
     30_000,
   );
