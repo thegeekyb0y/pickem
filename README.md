@@ -42,6 +42,20 @@ Open <http://localhost:3000>.
 | `ENABLE_LOAD_TEST_ROUTES`, `LOAD_TEST_SECRET` | Preview-only load-test route. |
 | `LOAD_TEST_ALLOW_LOCALHOST` | Optional. Allows a localhost k6 target. |
 
+### Google sign-in
+
+`BETTER_AUTH_URL` is the public origin of the deployment: set it to the
+production URL in Production, and to the preview URL in Preview.
+`BETTER_AUTH_TRUSTED_ORIGINS` lists the origins allowed to make state-changing
+auth requests, and defaults to `BETTER_AUTH_URL`.
+
+Set `BETTER_AUTH_TRUSTED_ORIGINS` to the **production URL only**. Google
+sign-in then works on the production domain and is refused on preview
+deployments, instead of failing later at the OAuth redirect because the
+production redirect URI is not registered for a preview host. Preview
+deployments should still register their own origin in the Google console
+before this restriction is lifted.
+
 ### Database
 
 ```bash
