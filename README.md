@@ -39,7 +39,8 @@ Open <http://localhost:3000>.
 | `DATABASE_URL_TEST` | Disposable branch URL used by the test suites. |
 | `ALLOW_TEST_DB_MUTATION` | Must be `1` to let tests write to that branch. |
 | `PRODUCTION_DATABASE_HOST` | Optional. Production hostname only, used by the test guard. |
-| `ENABLE_LOAD_TEST_ROUTES`, `LOAD_TEST_SECRET` | Preview-only load-test route. |
+| `ENABLE_LOAD_TEST_ROUTES` | Enables the load-test route. Preview only. |
+| `LOAD_TEST_SECRET` | Shared secret for the load-test route. Preview only. |
 | `LOAD_TEST_ALLOW_LOCALHOST` | Optional. Allows a localhost k6 target. |
 
 ### Google sign-in
