@@ -85,9 +85,10 @@ export function resolveProductionDatabaseHost(env = process.env) {
 }
 
 /**
- * Every hostname that identifies the production database. The pooled and
- * direct Neon URLs for the same database have different hostnames, so all
- * known forms are compared.
+ * Every hostname that identifies the production database. Neon exposes the
+ * same database under two hostnames: the pooled one (DATABASE_URL) and the
+ * direct one (DATABASE_URL_UNPOOLED). Both are compared, because a branch
+ * URL that matches only one of them is still the production database.
  */
 export function resolveProductionDatabaseHosts(env = process.env) {
   const hosts = new Set();
@@ -100,9 +101,9 @@ export function resolveProductionDatabaseHosts(env = process.env) {
   add(env.PRODUCTION_DATABASE_HOST);
   add(env.PRODUCTION_DATABASE_URL);
   add(env.DATABASE_URL);
-  add(env.DATABASE_URL_POOLED);
+  add(env.DATABASE_URL_UNPOOLED);
   add(readDotEnvValue("DATABASE_URL"));
-  add(readDotEnvValue("DATABASE_URL_POOLED"));
+  add(readDotEnvValue("DATABASE_URL_UNPOOLED"));
 
   return hosts;
 }

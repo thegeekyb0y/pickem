@@ -20,11 +20,11 @@ export function resolveTestDatabaseUrl(): string | undefined {
 
 /**
  * Points the application runtime at the disposable branch. Both variables are
- * set because the runtime prefers the pooled URL, and .env.local points that
- * one at production. Call this before the application modules are imported.
+ * set because the runtime uses the pooled URL and migrations use the direct
+ * one, and .env.local points those at production. Call this before the
+ * application modules are imported.
  */
 export function applyTestDatabaseUrl(url: string): void {
   process.env.DATABASE_URL = url;
-  process.env.DATABASE_URL_POOLED = url;
-  delete process.env.DATABASE_URL_DIRECT;
+  process.env.DATABASE_URL_UNPOOLED = url;
 }

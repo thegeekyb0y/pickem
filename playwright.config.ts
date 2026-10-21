@@ -51,10 +51,11 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         env: {
-          // Both variables are set: the runtime prefers the pooled URL, so
-          // leaving it alone would point the dev server at production.
+          // Both variables are set: the runtime uses the pooled URL and
+          // migrations use the direct one, so leaving them alone would point
+          // the dev server at production.
           DATABASE_URL: process.env.DATABASE_URL_TEST!,
-          DATABASE_URL_POOLED: process.env.DATABASE_URL_TEST!,
+          DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_TEST!,
           BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "pickem-e2e-test-secret",
           BETTER_AUTH_URL: baseURL,
         },

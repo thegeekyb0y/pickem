@@ -27,17 +27,20 @@ Open <http://localhost:3000>.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Runtime database URL. Use Neon's **pooled** URL in production. |
-| `DATABASE_URL_POOLED` | Optional. Takes precedence over `DATABASE_URL` when set. |
-| `DATABASE_URL_DIRECT` | Direct (unpooled) URL. Required for migrations. |
-| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Better Auth configuration. |
+| `DATABASE_URL` | Runtime database URL. Neon’s **pooled** URL. |
+| `DATABASE_URL_UNPOOLED` | Neon’s **direct** URL. Required for migrations. |
+| `DATABASE_POOL_MAX` | Optional. Connections per instance. Defaults to 5. |
+| `BETTER_AUTH_SECRET` | Better Auth signing secret. |
+| `BETTER_AUTH_URL` | Public origin of the deployment. |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Optional. Origins allowed to make state-changing auth requests. Defaults to `BETTER_AUTH_URL`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth credentials. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Rate limiting and results cache. |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob, for option images. |
-| `DATABASE_POOL_MAX` | Optional. Connections per instance. Defaults to 5. |
 | `DATABASE_URL_TEST` | Disposable branch URL used by the test suites. |
 | `ALLOW_TEST_DB_MUTATION` | Must be `1` to let tests write to that branch. |
-| `LOAD_TEST_ALLOW_LOCALHOST`, `LOAD_TEST_SECRET` | Preview-only load-test route. |
+| `PRODUCTION_DATABASE_HOST` | Optional. Production hostname only, used by the test guard. |
+| `ENABLE_LOAD_TEST_ROUTES`, `LOAD_TEST_SECRET` | Preview-only load-test route. |
+| `LOAD_TEST_ALLOW_LOCALHOST` | Optional. Allows a localhost k6 target. |
 
 ### Database
 

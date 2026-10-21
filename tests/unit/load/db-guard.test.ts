@@ -55,12 +55,12 @@ describe("database host resolution", () => {
   it("collects every hostname that identifies the production database", () => {
     const env = {
       DATABASE_URL: "postgresql://u:p@prod.example.com/db",
-      DATABASE_URL_POOLED: "postgresql://u:p@prod-pooler.example.com/db",
+      DATABASE_URL_UNPOOLED: "postgresql://u:p@prod-direct.example.com/db",
     } as GuardEnv;
 
     const hosts = resolveProductionDatabaseHosts(env);
     expect(hosts.has("prod.example.com")).toBe(true);
-    expect(hosts.has("prod-pooler.example.com")).toBe(true);
+    expect(hosts.has("prod-direct.example.com")).toBe(true);
   });
 });
 

@@ -5,17 +5,16 @@ import * as schema from "./schema";
 /**
  * Runtime connection.
  *
- * The app should always talk to Neon through the transaction pooler. The
- * pooler multiplexes many client connections over a small number of Neon
- * backend connections, which is what keeps a horizontally scaled serverless
- * deployment from exhausting the database's connection budget.
+ * The app always talks to Neon through the transaction pooler. The pooler
+ * multiplexes many client connections over a small number of Neon backend
+ * connections, which is what keeps a horizontally scaled serverless deployment
+ * from exhausting the database's connection budget.
  *
- * DATABASE_URL_POOLED is preferred when it is set. Otherwise DATABASE_URL is
- * used, which matches deployments that follow .env.example and put the pooled
- * URL in DATABASE_URL directly. Migrations must use a direct connection; see
- * drizzle.config.ts.
+ * These are the variable names the Neon Vercel integration provides:
+ * DATABASE_URL is the pooled URL and DATABASE_URL_UNPOOLED is the direct one.
+ * Migrations must use a direct connection; see drizzle.config.ts.
  */
-const connectionUrl = process.env.DATABASE_URL_POOLED ?? process.env.DATABASE_URL!;
+const connectionUrl = process.env.DATABASE_URL!;
 
 const client = postgres(connectionUrl, {
   // Neon transaction-pooler URLs require prepared statements to be disabled.
