@@ -5,7 +5,7 @@ import {
   resolveProductionDatabaseHost,
   resolveProductionDatabaseHosts,
   resolveTargetDatabaseHost,
-} from "../../scripts/load/db-guard.mjs";
+} from "../../scripts/db-guard.mjs";
 import { resolveTestDatabaseUrl, applyTestDatabaseUrl } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({ userId: "pickem-integration-user", cookies: new Map<string, string>() }));

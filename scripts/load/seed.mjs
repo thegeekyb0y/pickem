@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
-import { guardAgainstProductionDatabase } from "./db-guard.mjs";
+import { guardAgainstProductionDatabase } from "../db-guard.mjs";
 
 const SEED_MARKER = "k6 load test seed";
 

@@ -5,7 +5,7 @@ import {
   assertNotProductionDatabase,
   resolveProductionDatabaseHost,
   resolveTargetDatabaseHost,
-} from "../../../scripts/load/db-guard.mjs";
+} from "../../../scripts/db-guard.mjs";
 import { resolveTestDatabaseUrl } from "../../helpers/local-env";
 
 const scrypt = promisify(scryptCallback);

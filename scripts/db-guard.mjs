@@ -65,7 +65,7 @@ export function hostnameOf(connectionString) {
 
 /**
  * Resolves the production database host from, in order:
- * PRODUCTION_DATABASE_HOST, PRODUCTION_DATABASE_URL, DATABASE_URL, then .env.local.
+ * PRODUCTION_DATABASE_HOST, PRODUCTION_DATABASE_URL, then the local file.
  * Returns null when it cannot be determined.
  */
 export function resolveProductionDatabaseHost(env = process.env) {
@@ -75,20 +75,23 @@ export function resolveProductionDatabaseHost(env = process.env) {
   const explicitUrl = firstDefined(env.PRODUCTION_DATABASE_URL);
   if (explicitUrl) return hostnameOf(explicitUrl);
 
-  const runtimeUrl = firstDefined(env.DATABASE_URL);
-  if (runtimeUrl) return hostnameOf(runtimeUrl);
-
   const fileUrl = firstDefined(readDotEnvValue("DATABASE_URL"));
   if (fileUrl) return hostnameOf(fileUrl);
+
+  const runtimeUrl = firstDefined(env.DATABASE_URL);
+  if (runtimeUrl) return hostnameOf(runtimeUrl);
 
   return null;
 }
 
 /**
- * Every hostname that identifies the production database. Neon exposes the
- * same database under two hostnames: the pooled one (DATABASE_URL) and the
- * direct one (DATABASE_URL_UNPOOLED). Both are compared, because a branch
- * URL that matches only one of them is still the production database.
+ * Every hostname that identifies the production database.
+ *
+ * The local file and the explicit overrides are used on purpose: in a test run
+ * the process environment points at the disposable branch, so the process
+ * values would be the target rather than production. Neon exposes the same
+ * database under two hostnames, the pooled one and the direct one, so both
+ * forms are compared.
  */
 export function resolveProductionDatabaseHosts(env = process.env) {
   const hosts = new Set();
@@ -100,8 +103,6 @@ export function resolveProductionDatabaseHosts(env = process.env) {
 
   add(env.PRODUCTION_DATABASE_HOST);
   add(env.PRODUCTION_DATABASE_URL);
-  add(env.DATABASE_URL);
-  add(env.DATABASE_URL_UNPOOLED);
   add(readDotEnvValue("DATABASE_URL"));
   add(readDotEnvValue("DATABASE_URL_UNPOOLED"));
 
@@ -175,10 +176,11 @@ export function guardAgainstProductionDatabase({
 } = {}) {
   const targetHost = resolveTargetDatabaseHost(env, { allowRuntimeFallback });
   const productionHosts = resolveProductionDatabaseHosts(env);
+  const productionHost = resolveProductionDatabaseHost(env);
   return assertNotProductionDatabase({
     label,
     targetHost,
-    productionHost: resolveProductionDatabaseHost(env),
+    productionHost: productionHosts.size > 0 ? productionHost : null,
     productionHosts,
   });
 }

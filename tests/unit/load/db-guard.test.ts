@@ -6,7 +6,7 @@ import {
   resolveProductionDatabaseHosts,
   resolveTargetDatabaseHost,
   type GuardEnv,
-} from "../../../scripts/load/db-guard.mjs";
+} from "../../../scripts/db-guard.mjs";
 
 describe("hostnameOf", () => {
   it("keeps only the hostname and drops credentials, ports and paths", () => {
@@ -38,9 +38,10 @@ describe("database host resolution", () => {
     expect(resolveProductionDatabaseHost(env)).toBe("prod.example.com");
   });
 
-  it("falls back to the runtime database url", () => {
+  it("does not treat the runtime database url as production", () => {
+    // In a test run the process environment points at the disposable branch.
     const env = { DATABASE_URL: "postgresql://u:p@runtime.example.com/db" } as GuardEnv;
-    expect(resolveProductionDatabaseHost(env)).toBe("runtime.example.com");
+    expect(resolveProductionDatabaseHosts(env).has("runtime.example.com")).toBe(false);
   });
 
   it("resolves the target host from the test database url", () => {
@@ -52,15 +53,18 @@ describe("database host resolution", () => {
     expect(resolveTargetDatabaseHost(env)).toBe("branch.example.com");
   });
 
-  it("collects every hostname that identifies the production database", () => {
+  it("collects the production hosts from the explicit overrides and the local file", () => {
     const env = {
-      DATABASE_URL: "postgresql://u:p@prod.example.com/db",
-      DATABASE_URL_UNPOOLED: "postgresql://u:p@prod-direct.example.com/db",
+      PRODUCTION_DATABASE_HOST: "prod.example.com",
+      DATABASE_URL: "postgresql://u:p@target-branch.example.com/db",
+      DATABASE_URL_UNPOOLED: "postgresql://u:p@target-branch.example.com/db",
     } as GuardEnv;
 
     const hosts = resolveProductionDatabaseHosts(env);
     expect(hosts.has("prod.example.com")).toBe(true);
-    expect(hosts.has("prod-direct.example.com")).toBe(true);
+    // In a test run the process environment points at the disposable branch,
+    // so it must not be treated as production.
+    expect(hosts.has("target-branch.example.com")).toBe(false);
   });
 });
 

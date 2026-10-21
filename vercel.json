@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["sin1"],
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then node scripts/db/preflight-migration.mjs && npx drizzle-kit migrate; fi && npm run build"
+}

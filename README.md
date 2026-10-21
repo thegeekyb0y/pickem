@@ -106,3 +106,19 @@ decisions and the reasoning behind them.
 Guarded k6 scenarios live in [`scripts/load`](scripts/load/README.md). They
 only run against a Vercel preview backed by a disposable Neon branch, and the
 write scenario needs a secret header. See that README before running them.
+
+## Deployment
+
+`vercel.json` pins the function region to `sin1` (Singapore), next to the Neon
+compute in `ap-southeast-1`. Every ballot makes about eight database round
+trips, so running the functions near the database is worth roughly 150ms per
+request.
+
+Preview deployments run migrations during the build, against the preview
+branch. Production migrations stay manual. The build refuses to migrate when
+the target is the production database, so enable Neon preview branching before
+relying on it.
+
+The load-test endpoint under `app/api/load` is excluded from the deployment by
+`.vercelignore`, and it also refuses to run outside a preview. The test suites
+refuse to run when the target database is the production database.

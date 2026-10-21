@@ -1,0 +1,12 @@
+# The load-test endpoint is a local and preview-only tool. It is never
+# deployed, so it cannot be reached from a public deployment.
+app/api/load
+
+# Test and load-test tooling is not needed to build or run the app.
+# scripts/db-guard.mjs and scripts/db/ are kept: the build-time migration
+# pre-flight uses them.
+tests
+scripts/load
+playwright.config.ts
+vitest.config.mts
+.github
