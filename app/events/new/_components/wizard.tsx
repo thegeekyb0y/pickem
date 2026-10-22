@@ -1,17 +1,31 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
-import { localInputToUtcIso, utcInstantToLocalInput } from "@/lib/events/date-time";
+import { utcInstantToLocalInput } from "@/lib/events/date-time";
 import {
   saveEvent,
   uploadOptionImage,
   type OptionInput,
   type Visibility,
 } from "@/lib/events/actions";
+
+const DateTimePicker = dynamic(
+  () => import("./date-time-picker").then((module) => module.DateTimePicker),
+  {
+    ssr: false,
+    loading: () => (
+      <div aria-hidden="true" className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem]">
+        <div className="h-11 rounded-md border border-border bg-surface-2" />
+        <div className="h-11 rounded-md border border-border bg-surface-2" />
+      </div>
+    ),
+  },
+);
 
 export type WizardOptionState = {
   key: string;
@@ -627,34 +641,27 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="f-opensAt" className={labelClass}>
-                    Voting opens
-                  </label>
-                  <input
+                  <DateTimePicker
                     id="f-opensAt"
-                    name="opensAt"
-                    type="datetime-local"
-                    value={opensAt}
-                    onChange={(e) => setOpensAtIso(localInputToUtcIso(e.target.value) ?? "")}
-                    aria-invalid={Boolean(errors.opensAt)}
-                    aria-describedby={errors.opensAt ? "f-opensAt-error" : undefined}
-                    className={cn(inputClass, "font-mono tabular-nums")}
+                    label="Voting opens"
+                    kind="opens"
+                    value={opensAtIso}
+                    onChange={setOpensAtIso}
+                    error={errors.opensAt}
+                    errorId="f-opensAt-error"
                   />
                   <FieldError id="f-opensAt-error" message={errors.opensAt} />
                 </div>
                 <div>
-                  <label htmlFor="f-closesAt" className={labelClass}>
-                    Voting closes
-                  </label>
-                  <input
+                  <DateTimePicker
                     id="f-closesAt"
-                    name="closesAt"
-                    type="datetime-local"
-                    value={closesAt}
-                    onChange={(e) => setClosesAtIso(localInputToUtcIso(e.target.value) ?? "")}
-                    aria-invalid={Boolean(errors.closesAt)}
-                    aria-describedby={errors.closesAt ? "f-closesAt-error" : undefined}
-                    className={cn(inputClass, "font-mono tabular-nums")}
+                    label="Voting closes"
+                    kind="closes"
+                    value={closesAtIso}
+                    onChange={setClosesAtIso}
+                    referenceInstant={opensAtIso}
+                    error={errors.closesAt}
+                    errorId="f-closesAt-error"
                   />
                   <FieldError id="f-closesAt-error" message={errors.closesAt} />
                 </div>
