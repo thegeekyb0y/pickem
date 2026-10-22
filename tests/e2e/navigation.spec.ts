@@ -29,7 +29,10 @@ test("root remains Discover and navigation links to /discover", async ({ page })
 
   await page.goto("/discover?view=closed");
   await expect(page.getByRole("heading", { name: "Discover quizzes" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Closed" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Closed", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 });
 
 test("mobile vote submit bar stacks above the bottom navigation", async ({ baseURL, browser }) => {
