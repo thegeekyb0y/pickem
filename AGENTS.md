@@ -44,6 +44,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Interaction feedback animations must not exceed `200ms`.
 - Motion must support `prefers-reduced-motion`.
 - Looping animations must pause when off-screen and stop or reduce under reduced-motion settings.
+- Use Fluid's `spring.fast`, `spring.moderate`, and `spring.slow` tokens for newly adopted Fluid interactions; pair exits with their provided exit tween. Do not hand-roll a competing spring scale.
+- Keep transform/opacity as the default. Fluid's shipped, absolutely positioned selection/focus/hover overlays and fixed control internals may animate measured bounds only when surrounding layout does not reflow; do not add layout animation to custom UI. Fluid components may also retain their built-in short color, background-color, box-shadow, and font-variation transitions.
+- Keep feedback at 200ms or less. The Fluid `spring.slow` 240ms entrance is reserved for large dialogs/surfaces; its exit remains 160ms. Do not apply the slow tier to small controls.
+- Weight animation is allowed only with a variable font and the ghost-span width reservation; never animate weight on live result bars or rapidly changing numeric data.
+- Fluid Hover is mouse enhancement only. Keep pointer cursors on actionable elements, not containers; disable gap-click when a gap click could trigger an ambiguous, destructive, or data-changing action. Preserve keyboard-focus and direct touch behavior.
+- Wrap the application in `MotionConfig reducedMotion="user"`; reduced motion removes transform/layout travel while preserving short opacity/color cues. CSS loops still need explicit reduced-motion handling.
 
 ## UI Review
 
