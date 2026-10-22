@@ -7,10 +7,6 @@ import { events } from "@/db/schema/app";
 import Wizard, { type WizardInitial } from "./_components/wizard";
 import SignInButton from "./_components/sign-in-button";
 
-function toLocalInput(value: Date) {
-  return value.toISOString().slice(0, 16);
-}
-
 export default async function NewEventPage({
   searchParams,
 }: {
@@ -68,8 +64,10 @@ export default async function NewEventPage({
         step: draft.draftStep === 2 || draft.draftStep === 3 ? draft.draftStep : 1,
         title: draft.title === "Untitled poll" ? "" : draft.title,
         description: draft.description ?? "",
-        opensAt: toLocalInput(draft.opensAt),
-        closesAt: toLocalInput(draft.closesAt),
+        // Keep server props timezone-explicit. Wizard converts to local input
+        // values in the browser after hydration.
+        opensAt: draft.opensAt.toISOString(),
+        closesAt: draft.closesAt.toISOString(),
         visibility: draft.visibility,
         pickType: draft.pickType,
         maxPicks: draft.maxPicks,

@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { localInputToUtcIso, utcInstantToLocalInput } from "@/lib/events/date-time";
 import {
   saveEvent,
   uploadOptionImage,
@@ -32,6 +33,7 @@ export type WizardInitial = {
   step: 1 | 2 | 3;
   title: string;
   description: string;
+  /** UTC ISO instants from the server; converted to browser-local input values. */
   opensAt: string;
   closesAt: string;
   visibility: Visibility;
@@ -126,8 +128,11 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [direction, setDirection] = useState(1);
   const [title, setTitle] = useState(initial.title);
   const [description, setDescription] = useState(initial.description);
-  const [opensAt, setOpensAt] = useState(initial.opensAt);
-  const [closesAt, setClosesAt] = useState(initial.closesAt);
+  const [opensAt, setOpensAt] = useState("");
+  const [closesAt, setClosesAt] = useState("");
+  const [dateInputsReady, setDateInputsReady] = useState(
+    initial.opensAt === "" && initial.closesAt === "",
+  );
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
   const [pickType, setPickType] = useState<"single" | "top_n">(initial.pickType);
   const [maxPicks, setMaxPicks] = useState(initial.maxPicks);
@@ -144,6 +149,14 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
   const formErrorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const localOpensAt = initial.opensAt ? utcInstantToLocalInput(initial.opensAt) : "";
+    const localClosesAt = initial.closesAt ? utcInstantToLocalInput(initial.closesAt) : "";
+    setOpensAt(localOpensAt ?? "");
+    setClosesAt(localClosesAt ?? "");
+    setDateInputsReady(true);
+  }, [initial.opensAt, initial.closesAt]);
 
   function syncUrl(nextStep: number, id: string | null) {
     const params = new URLSearchParams();
@@ -279,8 +292,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       draftStep: step,
       title,
       description,
-      opensAt,
-      closesAt,
+      opensAt: opensAt === "" ? "" : (localInputToUtcIso(opensAt) ?? ""),
+      closesAt: closesAt === "" ? "" : (localInputToUtcIso(closesAt) ?? ""),
       visibility,
       passcode,
       pickType,
@@ -318,8 +331,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       draftStep: 3,
       title,
       description,
-      opensAt,
-      closesAt,
+      opensAt: opensAt === "" ? "" : (localInputToUtcIso(opensAt) ?? ""),
+      closesAt: closesAt === "" ? "" : (localInputToUtcIso(closesAt) ?? ""),
       visibility,
       passcode,
       pickType,
@@ -622,7 +635,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     id="f-opensAt"
                     name="opensAt"
                     type="datetime-local"
-                    value={opensAt}
+                    value={dateInputsReady ? opensAt : ""}
+                    disabled={!dateInputsReady}
                     onChange={(e) => setOpensAt(e.target.value)}
                     aria-invalid={Boolean(errors.opensAt)}
                     aria-describedby={errors.opensAt ? "f-opensAt-error" : undefined}
@@ -638,7 +652,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     id="f-closesAt"
                     name="closesAt"
                     type="datetime-local"
-                    value={closesAt}
+                    value={dateInputsReady ? closesAt : ""}
+                    disabled={!dateInputsReady}
                     onChange={(e) => setClosesAt(e.target.value)}
                     aria-invalid={Boolean(errors.closesAt)}
                     aria-describedby={errors.closesAt ? "f-closesAt-error" : undefined}

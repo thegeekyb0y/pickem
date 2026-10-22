@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { events, options } from "@/db/schema/app";
+import { parseUtcInstant } from "@/lib/events/date-time";
 
 const scrypt = promisify(scryptCallback);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -169,12 +170,12 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   let opensAt: Date | null = null;
   let closesAt: Date | null = null;
   if (input.opensAt.trim() !== "") {
-    const parsed = new Date(input.opensAt);
-    if (!Number.isNaN(parsed.getTime())) opensAt = parsed;
+    opensAt = parseUtcInstant(input.opensAt);
+    if (!opensAt) errors.opensAt = "Choose a valid date and time.";
   }
   if (input.closesAt.trim() !== "") {
-    const parsed = new Date(input.closesAt);
-    if (!Number.isNaN(parsed.getTime())) closesAt = parsed;
+    closesAt = parseUtcInstant(input.closesAt);
+    if (!closesAt) errors.closesAt = "Choose a valid date and time.";
   }
 
   if (strict) {
