@@ -14,7 +14,11 @@ stands. Written so a fresh session can pick up without re-deriving the history.
 
 ## Domain model
 
-`events` → `options`, `votes` → `vote_picks`.
+Current production model: `events` → `options`, `votes` → `vote_picks`.
+Quiz-builder direction: keep `events` as the quiz identity and add required
+`questions`; questions own options and each question gets its own pick type.
+`ballot_answers` will store selected options per question while `votes` remains
+the quiz-level ballot/identity row.
 
 | Concept | Where |
 | --- | --- |
@@ -72,18 +76,58 @@ in that listing.
 - Live results with polling, animated deltas and connection status
 - Passcode-protected polls with an unlock gate
 - Unit, integration and end-to-end test suites, CI, and load-test scenarios
+- UTC/local date-time conversion for draft create/edit, with timezone regression
+  coverage (`lib/events/date-time.ts`)
+- Vercel Web Analytics in the root layout
+- Responsive site navigation, `/discover`, and `/` as its current alias
+- Profile/settings and account activity page (social link is intentionally not
+  part of this change)
 
 ## Current state
 
-`main` is green: lint, typecheck, 55 unit/integration tests, build, and CI all
-pass. End-to-end tests pass against a disposable database.
+The four recent changes (date/timezone, Analytics, navigation, profile/settings)
+are pushed to `main`; GitHub CI run #9 for `8e017f3` is green. Do not repeat local
+tests, Docker, database checks, or typecheck merely to re-verify those commits.
+The current event model is still one question per event; quiz-builder work has
+not started. See [`QUIZ_BUILDER_PLAN.md`](QUIZ_BUILDER_PLAN.md) for decisions,
+migration outline, acceptance criteria, and ordered implementation tasks.
+
+## Quiz-builder decisions (not implemented)
+
+- Preserve `events` and `/events/<id>` as the quiz identity. A quiz has 1–20
+  required questions, each with 2–8 options and its own Pick one or Pick top N
+  (2–8); no quiz-wide pick type. Voter UI is one stacked page, answered count,
+  and one atomic final submit. Reorder with up/down; duplicate; confirm delete.
+- Persist times as UTC; render viewer-local time with timezone label/countdown;
+  no timezone column. `/discover` is discovery; `/` remains its alias until a
+  future static, no-database landing page.
+- Quiz cover sources: app presets, server-only Unsplash search (`UNSPLASH_ACCESS_KEY`,
+  Redis-cached; credit and download endpoint), or authenticated/rate-limited
+  Vercel Blob upload with size/type limits, WebP resize, and EXIF removal.
+  `cover_kind`, `cover_ref`, and `cover_meta` belong in migration 1.
+- Title/description may change anytime; dates only before close. Never reopen;
+  prohibit moving start into the future after ballots. Close/edit use event
+  `FOR UPDATE`; voters use `FOR KEY SHARE`. Invalidate listing/results caches
+  and show edited marker. Question types/options/picks lock after votes.
+- Account deletion is last: anonymize PII, delete sessions/accounts/drafts,
+  retain tombstone users for ballots, close or unlist open quizzes. Social link
+  has a separate migration gate (platform + handle limited to HTTPS
+  `instagram.com`/`x.com`).
+- Migration 1 expands/backfills questions, question-owned options, ballot answers,
+  and covers; deploy new code; migration 2 contracts legacy fields/tables.
+  No compatibility validator. Autosave and per-question live snapshots use
+  version gating; answer insertion is batched with constant statement count.
+  Rehearse locally and ask before any database migration; Neon requires a backup
+  branch first. Start with the reusable date/time picker commit on `main`, then
+  feature-branch quiz work. See the plan for SQL and acceptance criteria.
 
 ## Known gaps and next steps
 
-1. **First deployment.** Nothing is deployed yet. The production URL
-   (`pickem.vercel.app`) currently serves an older, unrelated build, so the
-   `/api/load/vote` 404 check and a live smoke test still have to be done after
-   the first deploy.
+1. **Quiz builder.** Not started. First create the reusable date/time picker as
+   a small commit on `main`; then use a feature branch for schema expand,
+   autosaved drafts, covers, builder, multi-question voting/results, and edits.
+   Keep migration 2 contract separate and ask before any migration. Full sequence
+   and acceptance tests are in `docs/QUIZ_BUILDER_PLAN.md`.
 2. **Pool sizing.** `DATABASE_POOL_MAX` defaults to 5 per instance. This has
    not been tuned against real traffic; measure before changing it.
 3. **Vote throughput.** Ballots for one poll now run concurrently, but the
@@ -97,6 +141,11 @@ pass. End-to-end tests pass against a disposable database.
 ## Environment notes
 
 - `DATABASE_URL` is the runtime URL (pooled in production);
-  `DATABASE_URL_DIRECT` is for migrations.
+  `DATABASE_URL_UNPOOLED` is the direct connection used for migrations.
+- `DATABASE_POOL_MAX` defaults to 5; `db/index.ts` sets `prepare: false` for the
+  Neon transaction pooler.
+- Better Auth uses the configured static `BETTER_AUTH_URL`; trusted origins are
+  configured with `BETTER_AUTH_TRUSTED_ORIGINS` (production URL only in
+  production).
 - `DATABASE_URL_TEST` must point at a disposable branch. The test suites refuse
   to run when the target host matches any known production host.
