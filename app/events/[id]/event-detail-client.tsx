@@ -147,7 +147,7 @@ export default function EventDetailClient({
 
   return (
     <main className="min-h-dvh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-10">
         <Link
           href="/"
           className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -411,7 +411,10 @@ export default function EventDetailClient({
       </div>
 
       {!hasVoted && !effectiveClosed ? (
-        <div className="sticky bottom-0 border-t border-border bg-background">
+        <div
+          data-testid="vote-submit-bar"
+          className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background sm:bottom-0"
+        >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-muted-foreground">
               {event.pickType === "top_n"
@@ -433,7 +436,10 @@ export default function EventDetailClient({
       ) : null}
 
       {hasVoted ? (
-        <div className="sticky bottom-0 border-t border-border bg-background">
+        <div
+          data-testid="vote-submitted-bar"
+          className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background sm:bottom-0"
+        >
           <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 text-sm text-foreground sm:px-6">
             <CheckIcon />
             <p aria-live="polite">Ballot submitted. Your picks are final and can’t be edited.</p>
