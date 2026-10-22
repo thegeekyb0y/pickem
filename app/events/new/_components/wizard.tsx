@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -117,6 +117,9 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
 const inputClass =
   "w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-foreground placeholder:text-subtle-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const labelClass = "mb-1 block text-sm font-medium text-foreground";
+const subscribeToTimezone = () => () => {};
+const getBrowserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const getServerTimezone = () => "UTC";
 
 export default function Wizard({ initial }: { initial: WizardInitial }) {
   const router = useRouter();
@@ -128,11 +131,15 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [direction, setDirection] = useState(1);
   const [title, setTitle] = useState(initial.title);
   const [description, setDescription] = useState(initial.description);
-  const [opensAt, setOpensAt] = useState("");
-  const [closesAt, setClosesAt] = useState("");
-  const [dateInputsReady, setDateInputsReady] = useState(
-    initial.opensAt === "" && initial.closesAt === "",
+  const [opensAtIso, setOpensAtIso] = useState(initial.opensAt);
+  const [closesAtIso, setClosesAtIso] = useState(initial.closesAt);
+  const timezone = useSyncExternalStore(
+    subscribeToTimezone,
+    getBrowserTimezone,
+    getServerTimezone,
   );
+  const opensAt = opensAtIso ? utcInstantToLocalInput(opensAtIso, timezone) ?? "" : "";
+  const closesAt = closesAtIso ? utcInstantToLocalInput(closesAtIso, timezone) ?? "" : "";
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
   const [pickType, setPickType] = useState<"single" | "top_n">(initial.pickType);
   const [maxPicks, setMaxPicks] = useState(initial.maxPicks);
@@ -149,14 +156,6 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
   const formErrorRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const localOpensAt = initial.opensAt ? utcInstantToLocalInput(initial.opensAt) : "";
-    const localClosesAt = initial.closesAt ? utcInstantToLocalInput(initial.closesAt) : "";
-    setOpensAt(localOpensAt ?? "");
-    setClosesAt(localClosesAt ?? "");
-    setDateInputsReady(true);
-  }, [initial.opensAt, initial.closesAt]);
 
   function syncUrl(nextStep: number, id: string | null) {
     const params = new URLSearchParams();
@@ -292,8 +291,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       draftStep: step,
       title,
       description,
-      opensAt: opensAt === "" ? "" : (localInputToUtcIso(opensAt) ?? ""),
-      closesAt: closesAt === "" ? "" : (localInputToUtcIso(closesAt) ?? ""),
+      opensAt: opensAtIso,
+      closesAt: closesAtIso,
       visibility,
       passcode,
       pickType,
@@ -331,8 +330,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       draftStep: 3,
       title,
       description,
-      opensAt: opensAt === "" ? "" : (localInputToUtcIso(opensAt) ?? ""),
-      closesAt: closesAt === "" ? "" : (localInputToUtcIso(closesAt) ?? ""),
+      opensAt: opensAtIso,
+      closesAt: closesAtIso,
       visibility,
       passcode,
       pickType,
@@ -635,9 +634,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     id="f-opensAt"
                     name="opensAt"
                     type="datetime-local"
-                    value={dateInputsReady ? opensAt : ""}
-                    disabled={!dateInputsReady}
-                    onChange={(e) => setOpensAt(e.target.value)}
+                    value={opensAt}
+                    onChange={(e) => setOpensAtIso(localInputToUtcIso(e.target.value) ?? "")}
                     aria-invalid={Boolean(errors.opensAt)}
                     aria-describedby={errors.opensAt ? "f-opensAt-error" : undefined}
                     className={cn(inputClass, "font-mono tabular-nums")}
@@ -652,9 +650,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                     id="f-closesAt"
                     name="closesAt"
                     type="datetime-local"
-                    value={dateInputsReady ? closesAt : ""}
-                    disabled={!dateInputsReady}
-                    onChange={(e) => setClosesAt(e.target.value)}
+                    value={closesAt}
+                    onChange={(e) => setClosesAtIso(localInputToUtcIso(e.target.value) ?? "")}
                     aria-invalid={Boolean(errors.closesAt)}
                     aria-describedby={errors.closesAt ? "f-closesAt-error" : undefined}
                     className={cn(inputClass, "font-mono tabular-nums")}

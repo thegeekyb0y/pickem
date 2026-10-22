@@ -2,19 +2,27 @@ const LOCAL_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const ISO_INSTANT_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/i;
 
-function pad(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-/** Formats an absolute instant as the browser's local datetime-local value. */
-export function utcInstantToLocalInput(value: string): string | null {
+/** Formats an absolute instant as a datetime-local value in the requested zone. */
+export function utcInstantToLocalInput(
+  value: string,
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string | null {
   const instant = parseUtcInstant(value);
   if (!instant) return null;
 
-  return [
-    `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}`,
-    `T${pad(instant.getHours())}:${pad(instant.getMinutes())}`,
-  ].join("");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((value) => value.type === type)?.value ?? "";
+
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 }
 
 /** Converts a browser-local datetime-local value into an explicit UTC instant. */
@@ -27,10 +35,10 @@ export function localInputToUtcIso(value: string): string | null {
 
   // Reject local wall times that the browser normalized (for example, a time
   // inside a daylight-saving gap) instead of silently changing the selection.
-  const roundTrip = [
-    `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}`,
-    `T${pad(instant.getHours())}:${pad(instant.getMinutes())}`,
-  ].join("");
+  const roundTrip = utcInstantToLocalInput(
+    instant.toISOString(),
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
   if (roundTrip !== localValue) return null;
 
   return instant.toISOString();
