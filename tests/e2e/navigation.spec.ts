@@ -33,6 +33,10 @@ test("root remains Discover and navigation links to /discover", async ({ page })
     "aria-current",
     "page",
   );
+
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { name: "Sign in to view your profile" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
 });
 
 test("mobile vote submit bar stacks above the bottom navigation", async ({ baseURL, browser }) => {

@@ -404,6 +404,32 @@ export async function deleteDraft(eventId: string): Promise<OwnerActionResult> {
   return { ok: true };
 }
 
+export async function updateProfileName(
+  rawName: unknown,
+): Promise<{ ok: true; name: string } | { ok: false; message: string }> {
+  if (typeof rawName !== "string") {
+    return { ok: false, message: "Enter a valid display name." };
+  }
+  const name = rawName.trim();
+  if (name.length < 1 || name.length > 80) {
+    return { ok: false, message: "Keep your display name between 1 and 80 characters." };
+  }
+
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, message: "Sign in to update your profile." };
+
+  try {
+    await auth.api.updateUser({
+      headers: await headers(),
+      body: { name },
+    });
+    revalidatePath("/profile");
+    return { ok: true, name };
+  } catch {
+    return { ok: false, message: "Couldn’t update your display name. Try again." };
+  }
+}
+
 export type UploadResult =
   | { ok: true; url: string; key: string }
   | { ok: false; error: string };
