@@ -1,7 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownContent,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import { closeEvent, deleteDraft } from "@/lib/events/actions";
 
 type ActionMode = "close" | "delete";
@@ -16,15 +32,13 @@ export default function OwnerControls({
   isLive: boolean;
 }) {
   const router = useRouter();
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<ActionMode | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function openDialog(nextMode: ActionMode) {
-    setMode(nextMode);
     setError(null);
-    dialogRef.current?.showModal();
+    setMode(nextMode);
   }
 
   async function confirmAction() {
@@ -38,7 +52,7 @@ export default function OwnerControls({
       return;
     }
 
-    dialogRef.current?.close();
+    setMode(null);
     if (mode === "delete") {
       router.push("/events/drafts");
       return;
@@ -48,71 +62,87 @@ export default function OwnerControls({
 
   if (!isDraft && !isLive) return null;
 
+  const dialogOpen = mode !== null;
+
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        {isLive ? (
-          <button
-            type="button"
-            onClick={() => openDialog("close")}
-            className="rounded-md border border-border bg-surface-1 px-3 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            Close poll early
-          </button>
-        ) : null}
-        {isDraft ? (
-          <button
-            type="button"
-            onClick={() => openDialog("delete")}
-            className="rounded-md border border-border bg-surface-1 px-3 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            Delete draft
-          </button>
-        ) : null}
-      </div>
+      <DropdownMenu>
+        <DropdownTrigger
+          render={
+            <Button
+              type="button"
+              variant="tertiary"
+              className="font-fluid min-h-11 px-3"
+            >
+              Quiz actions
+            </Button>
+          }
+        />
+        <DropdownContent align="start">
+          {isLive ? (
+            <MenuItem
+              index={0}
+              label="Close quiz early"
+              onSelect={() => openDialog("close")}
+            />
+          ) : null}
+          {isDraft ? (
+            <MenuItem
+              index={isLive ? 1 : 0}
+              label="Delete draft"
+              onSelect={() => openDialog("delete")}
+            />
+          ) : null}
+        </DropdownContent>
+      </DropdownMenu>
 
-      <dialog
-        ref={dialogRef}
-        aria-labelledby="owner-action-title"
-        onClose={() => {
-          if (!pending) setMode(null);
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !pending) setMode(null);
         }}
-        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl border border-border bg-surface-1 p-0 text-foreground shadow-popover backdrop:bg-foreground/30"
       >
-        <div className="p-5 sm:p-6">
-          <h2 id="owner-action-title" className="text-balance text-xl font-bold">
-            {mode === "delete" ? "Delete this draft?" : "Close voting early?"}
-          </h2>
-          <p className="mt-2 text-pretty text-sm leading-5 text-muted-foreground">
-            {mode === "delete"
-              ? "This permanently removes the draft and its options."
-              : "Voters will no longer be able to submit a ballot. Existing results remain available."}
-          </p>
+        <DialogContent size="sm" showCloseButton={!pending}>
+          <DialogHeader>
+            <DialogTitle>
+              {mode === "delete" ? "Delete this draft?" : "Close voting early?"}
+            </DialogTitle>
+            <DialogDescription>
+              {mode === "delete"
+                ? "This permanently removes the draft and its questions."
+                : "Voters will no longer be able to submit answers. Existing results remain available."}
+            </DialogDescription>
+          </DialogHeader>
           {error ? (
-            <p role="alert" className="mt-3 rounded-md border border-border p-3 text-sm text-accent">
+            <p role="alert" aria-live="polite" className="rounded-md border border-border p-3 text-sm text-accent">
               {error}
             </p>
           ) : null}
-          <div className="mt-5 flex flex-wrap justify-end gap-2">
-            <button
+          <DialogFooter>
+            <DialogClose
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={pending}
+                  className="font-fluid min-h-11 px-4"
+                >
+                  Cancel
+                </Button>
+              }
+            />
+            <Button
               type="button"
-              disabled={pending}
-              onClick={() => dialogRef.current?.close()}
-              className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
+              variant="primary"
               disabled={pending}
               onClick={() => void confirmAction()}
-              className="rounded-md bg-accent-hover px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
+              className="font-fluid min-h-11 px-4"
             >
-              {pending ? "Working…" : mode === "delete" ? "Delete draft" : "Close poll"}
-            </button>
-          </div>
-        </div>
-      </dialog>
+              {pending ? "Working…" : mode === "delete" ? "Delete draft" : "Close quiz"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
