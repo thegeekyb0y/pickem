@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { events, options, votePicks, votes } from "@/db/schema/app";
 import { profileInitials } from "@/lib/profile";
+import { Badge } from "@/components/ui/badge";
 import SignInButton from "@/app/events/new/_components/sign-in-button";
 import ProfileSettingsForm from "./profile-settings-form";
 
@@ -141,9 +142,25 @@ export default async function ProfilePage() {
                 <li key={quiz.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{quiz.title}</p>
-                    <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                      {quiz.status} · Edited {dateFormat.format(quiz.updatedAt)}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge
+                        size="compact"
+                        color={
+                          quiz.status === "open"
+                            ? "green"
+                            : quiz.status === "scheduled"
+                              ? "amber"
+                              : quiz.status === "cancelled"
+                                ? "red"
+                                : "gray"
+                        }
+                      >
+                        {quiz.status}
+                      </Badge>
+                      <p className="font-mono text-xs tabular-nums text-muted-foreground">
+                        Edited {dateFormat.format(quiz.updatedAt)}
+                      </p>
+                    </div>
                   </div>
                   <Link href={`/events/${quiz.id}`} className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm font-medium hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
                     Open
