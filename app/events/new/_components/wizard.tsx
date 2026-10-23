@@ -75,7 +75,6 @@ function toQuestionState(question: WizardQuestionInitial): QuizQuestionState {
         imageUrl: option.imageUrl,
         imageBlobKey: option.imageBlobKey,
         imageAlt: option.imageAlt,
-        showDetails: option.description !== "",
         showImage: option.imageUrl !== "",
         imageMode: option.imageSource === "external_url" ? "link" as const : "upload" as const,
         uploading: false,
@@ -89,12 +88,12 @@ function toQuestionState(question: WizardQuestionInitial): QuizQuestionState {
 function toSaveQuestions(questions: QuizQuestionState[]) {
   return questions.map((question) => ({
     prompt: question.prompt,
-    description: question.description,
+    description: "",
     pickType: question.pickType,
     maxPicks: question.maxPicks,
     options: question.options.map((option) => ({
       label: option.label,
-      description: option.description,
+      description: "",
       imageSource:
         !option.showImage || option.imageUrl.trim() === ""
           ? "none" as const
@@ -291,7 +290,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       return;
     }
     const nextErrors: Record<string, string> = {};
-    if (!title.trim()) nextErrors.title = "Give your quiz a title.";
+    if (!title.trim()) nextErrors.title = "Give your poll a title.";
     if (title.trim().length > 160) nextErrors.title = "Keep titles to 160 characters or fewer.";
     const opens = parseUtcInstant(opensAt);
     const closes = parseUtcInstant(closesAt);
@@ -338,12 +337,12 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-muted-foreground">Google Forms-style quiz builder</p>
+          <p className="text-sm text-muted-foreground">Ask your group, collect answers, and share results.</p>
           <h1 className="mt-1 text-balance text-3xl font-bold">
-            {eventId ? "Edit quiz draft" : "Create a quiz"}
+            {eventId ? "Edit poll draft" : "Create a poll"}
           </h1>
         </div>
         <Link href="/events/drafts" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
@@ -382,19 +381,19 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         ) : null}
       </div>
 
-      <section aria-labelledby="quiz-basics-title" className="space-y-5 rounded-xl border border-border bg-surface-1 p-4 sm:p-6">
+      <section aria-labelledby="quiz-basics-title" className="space-y-4 rounded-xl border border-border bg-surface-1 p-4 sm:p-5">
         <QuizCoverPicker
           value={{ kind: coverKind, ref: coverRef, meta: coverMeta }}
           onChange={updateCover}
         />
         <div className="border-t border-border pt-5">
-          <h2 id="quiz-basics-title" className="text-balance text-xl font-bold">Quiz details</h2>
+          <h2 id="quiz-basics-title" className="text-balance text-xl font-bold">Poll details</h2>
           <div className="mt-4 space-y-4">
             <InputGroup className="font-fluid w-full max-w-none">
               <InputField
                 id="f-title"
                 name="title"
-                label="Quiz title"
+                label="Poll title"
                 index={0}
                 value={title}
                 onChange={updateTitle}
@@ -485,7 +484,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       <section aria-labelledby="questions-title" className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 id="questions-title" className="text-balance text-2xl font-bold">Questions</h2>
+            <h2 id="questions-title" className="text-balance text-xl font-bold">Questions</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Every question is required. Add 1–20 questions, each with 2–8 options.
             </p>
@@ -516,7 +515,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
           onClick={() => void publishQuiz()}
           className={cn("font-fluid min-h-11 px-5", publishing && "opacity-70")}
         >
-          {publishing ? "Publishing…" : "Publish quiz"}
+          {publishing ? "Publishing…" : "Publish poll"}
         </Button>
       </footer>
       <p className="sr-only" aria-live="polite">

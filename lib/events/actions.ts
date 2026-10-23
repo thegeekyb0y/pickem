@@ -173,17 +173,17 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
     return {
       ok: false,
       errors: {},
-      formError: "Some quiz details were invalid. Review the fields and try again.",
+      formError: "Some poll details were invalid. Review the fields and try again.",
     };
   }
 
   const userId = await requireUserId();
   if (!userId) {
-    return { ok: false, errors: {}, formError: "Sign in to save this quiz." };
+    return { ok: false, errors: {}, formError: "Sign in to save this poll." };
   }
 
   if (input.saveAs !== "draft" && input.saveAs !== "publish") {
-    return { ok: false, errors: {}, formError: "Choose whether to save or publish this quiz." };
+    return { ok: false, errors: {}, formError: "Choose whether to save or publish this poll." };
   }
   const strict = input.saveAs === "publish";
   const errors: Record<string, string> = {};
@@ -191,12 +191,12 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   const title = input.title.trim();
   const description = input.description.trim();
   if (!["unlisted", "discoverable", "passcode"].includes(input.visibility)) {
-    errors.visibility = "Choose a valid quiz visibility.";
+    errors.visibility = "Choose a valid poll visibility.";
   }
   const visibility = input.visibility as Visibility;
   const draftStep = [1, 2, 3].includes(input.draftStep) ? input.draftStep : 1;
   const normalizedCover = normalizeCover(input.coverKind, input.coverRef, input.coverMeta);
-  if (!normalizedCover) errors.cover = "Choose a valid quiz cover.";
+  if (!normalizedCover) errors.cover = "Choose a valid poll cover.";
   const { errors: questionErrors, questions: normalizedQuestions } = validateQuizQuestions(
     input.questions,
     strict,
@@ -215,7 +215,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   }
 
   if (strict) {
-    if (title.length === 0) errors.title = "Give your quiz a title.";
+    if (title.length === 0) errors.title = "Give your poll a title.";
     else if (title.length > 160) errors.title = "Keep titles to 160 characters or fewer.";
     if (!opensAt) errors.opensAt = "Choose when voting opens.";
     if (!closesAt) errors.closesAt = "Choose when voting closes.";
@@ -263,7 +263,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
       };
     }
   } else if (input.expectedDraftVersion !== null) {
-    return { ok: false, errors: {}, formError: "This new quiz has an invalid draft version." };
+    return { ok: false, errors: {}, formError: "This new poll has an invalid draft version." };
   }
 
   const now = new Date();
@@ -305,7 +305,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
         await tx
           .update(events)
           .set({
-            title: title === "" ? "Untitled quiz" : title,
+            title: title === "" ? "Untitled poll" : title,
             description: description === "" ? null : description,
             status,
             visibility,
@@ -326,7 +326,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
           .insert(events)
           .values({
             creatorUserId: userId,
-            title: title === "" ? "Untitled quiz" : title,
+            title: title === "" ? "Untitled poll" : title,
             description: description === "" ? null : description,
             status,
             visibility,
@@ -424,11 +424,11 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
 
 export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
   if (!UUID_PATTERN.test(eventId)) {
-    return { ok: false, message: "This quiz is unavailable." };
+    return { ok: false, message: "This poll is unavailable." };
   }
 
   const userId = await requireUserId();
-  if (!userId) return { ok: false, message: "Sign in to manage this quiz." };
+  if (!userId) return { ok: false, message: "Sign in to manage this poll." };
 
   const closed = await db.transaction(async (tx) => {
     const [event] = await tx
@@ -466,7 +466,7 @@ export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
     return true;
   });
 
-  if (!closed) return { ok: false, message: "Only an open quiz can be closed early." };
+  if (!closed) return { ok: false, message: "Only an open poll can be closed early." };
   revalidateTag("home:polls", "max");
   revalidatePath("/");
   revalidatePath(`/events/${eventId}`);
@@ -567,9 +567,9 @@ export type QuizCoverUploadResult =
 
 export async function uploadQuizCover(formData: FormData): Promise<QuizCoverUploadResult> {
   const userId = await requireUserId();
-  if (!userId) return { ok: false, error: "Sign in to upload a quiz cover." };
+  if (!userId) return { ok: false, error: "Sign in to upload a poll cover." };
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return { ok: false, error: "Quiz cover uploads aren’t configured yet." };
+    return { ok: false, error: "Poll cover uploads aren’t configured yet." };
   }
   if (!(await limitQuizCoverUpload(userId))) {
     return { ok: false, error: "Too many cover uploads. Try again later." };

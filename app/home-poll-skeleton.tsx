@@ -1,7 +1,7 @@
 export default function HomePollSkeleton() {
   return (
-    <div aria-busy="true" aria-label="Loading quizzes" className="space-y-8">
-      <span className="sr-only">Loading quizzes</span>
+    <div aria-busy="true" aria-label="Loading polls" className="space-y-8">
+      <span className="sr-only">Loading polls</span>
       {[0, 1, 2].map((section) => (
         <section key={section} aria-hidden="true">
           <div className="mb-3 h-7 w-40 rounded-sm bg-surface-3" />

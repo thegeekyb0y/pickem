@@ -3,20 +3,17 @@
 This document is the implementation handoff for replacing the current one-question
 poll model with quizzes containing independently configured questions.
 
-> **Status 2026-10-23:** PRs #1 and #2 are merged into `origin/main`;
-> production tracks `main` and contains the multi-question builder. Migration
-> `0006` is applied to Neon production. Migration `0007` is applied and replaces
-> the stale production question-guard trigger whose PL/pgSQL `event_id` variable
-> collided with `votes.event_id`; the planned contract migration is now `0008`.
-> Phase 1 reliability work is on `fix/draft-save-reliability` and passes lint,
-> typecheck, 66 unit tests, 16 integration tests, and production build. It fixes
-> the
-> question/option timestamp constraint failure that blocked every draft save and
-> publish, syncs the draft URL on first save, replaces the flickering error
-> banner with a stable status surface, and stops repeated autosave retries after
-> a failure. Phase 2 is the compact poll-builder/terminology pass. The cover
-> direction is now owner-supplied pattern/preset artwork, custom uploads, and
-> cropping; Unsplash is not in the current roadmap. See
+> **Status 2026-10-23:** PRs #1–#4 are merged into `origin/main`; production
+> tracks `main` and contains the multi-question builder plus the Phase 1
+> reliability fixes. Migration `0006` is applied to Neon production. Migration
+> `0007` is applied and replaces the stale production question-guard trigger
+> whose PL/pgSQL `event_id` variable collided with `votes.event_id`; the planned
+> contract migration is now `0008`. Phase 2, the compact poll-builder and
+> poll/response terminology pass, is implemented and verified on
+> `feat/phase-2-poll-polish` but not yet committed. It passes lint, typecheck, 66
+> unit tests, 16 integration tests, 4 Playwright tests, and production build.
+> The cover direction is now owner-supplied pattern/preset artwork, custom
+> uploads, and cropping; Unsplash is not in the current roadmap. See
 > [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for the live state and resume
 > checklist.
 

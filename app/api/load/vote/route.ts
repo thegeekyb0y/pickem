@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     body.answers.length < 1 ||
     body.answers.length > 20
   ) {
-    return Response.json({ error: "Invalid ballot payload" }, { status: 400 });
+    return Response.json({ error: "Invalid vote payload" }, { status: 400 });
   }
 
   const result = await submitVote({

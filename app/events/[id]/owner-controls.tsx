@@ -68,7 +68,7 @@ export default function OwnerControls({
             className="font-fluid min-h-11 px-3"
             onClick={() => openDialog("close")}
           >
-            Close quiz early
+            Close poll early
           </Button>
         ) : null}
         {isDraft ? (
@@ -125,7 +125,7 @@ export default function OwnerControls({
               onClick={() => void confirmAction()}
               className="font-fluid min-h-11 px-4"
             >
-              {pending ? "Working…" : mode === "delete" ? "Delete draft" : "Close quiz"}
+              {pending ? "Working…" : mode === "delete" ? "Delete draft" : "Close poll"}
             </Button>
           </DialogFooter>
         </DialogContent>

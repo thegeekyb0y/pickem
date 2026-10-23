@@ -236,7 +236,7 @@ const triggerVariants = cva(
     variants: {
       variant: {
         bordered:
-          "border border-border bg-transparent text-foreground hover:bg-hover",
+          "border border-border bg-background text-foreground hover:bg-surface-2",
         borderless:
           "border border-transparent bg-transparent text-foreground hover:bg-hover",
       },

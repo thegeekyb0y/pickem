@@ -57,7 +57,7 @@ export default function EventCard({
           <div className="mt-5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
             <span className="text-foreground">
               {new Intl.NumberFormat().format(poll.ballotCount)}{" "}
-              {poll.ballotCount === 1 ? "ballot" : "ballots"}
+              {poll.ballotCount === 1 ? "response" : "responses"}
             </span>
           </div>
           <p className="mt-2 text-xs text-subtle-foreground">

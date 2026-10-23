@@ -73,7 +73,7 @@ export async function createPollFixture(
         id, creator_user_id, title, description, status, visibility, passcode_hash,
         opens_at, closes_at
       ) values (
-        ${eventId}, ${userId}, ${`E2E quiz ${eventId.slice(0, 8)}`},
+        ${eventId}, ${userId}, ${`E2E poll ${eventId.slice(0, 8)}`},
         'Playwright fixture', 'open', ${visibility},
         ${passcode ? await hashPasscode(passcode) : null},
         clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'

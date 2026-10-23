@@ -13,7 +13,7 @@ test.beforeAll(() => {
   if (e2eEnabled) assertE2eTargetIsNotProduction();
 });
 
-test("a second browser context receives live ballot updates without refresh", async ({
+test("a second browser context receives live response updates without refresh", async ({
   browser,
   baseURL,
 }) => {
@@ -31,13 +31,13 @@ test("a second browser context receives live ballot updates without refresh", as
     const eventUrl = `${baseURL}/events/${fixture.eventId}`;
     await Promise.all([pageA.goto(eventUrl), pageB.goto(eventUrl)]);
 
-    await expect(pageB.getByTestId("ballot-count")).toContainText("0 ballots");
+    await expect(pageB.getByTestId("ballot-count")).toContainText("0 responses");
     await pageA.getByRole("button", { name: "E2E option 1" }).click();
     await pageA.getByLabel("Social handle").fill("pickem-e2e");
-    await pageA.getByRole("button", { name: "Submit final ballot" }).click();
+    await pageA.getByRole("button", { name: "Submit answers" }).click();
     // The dev server compiles the server action on first use, so allow time.
-    await expect(pageA.getByText(/Ballot submitted/)).toBeVisible({ timeout: 30_000 });
-    await expect(pageB.getByTestId("ballot-count")).toContainText("1 ballot", { timeout: 20_000 });
+    await expect(pageA.getByText(/Answers submitted/)).toBeVisible({ timeout: 30_000 });
+    await expect(pageB.getByTestId("ballot-count")).toContainText("1 response", { timeout: 20_000 });
   } finally {
     await contextA?.close();
     await contextB?.close();

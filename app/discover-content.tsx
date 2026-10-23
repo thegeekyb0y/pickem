@@ -10,10 +10,10 @@ export default function DiscoverContent({ view }: { view: "live" | "closed" }) {
         <header className="rounded-xl border border-border bg-surface-1 p-5 sm:p-7">
           <p className="text-sm font-medium text-accent">Pickem</p>
           <h1 className="mt-2 text-balance text-3xl font-bold sm:text-4xl">
-            Discover quizzes
+            Discover polls
           </h1>
           <p className="mt-2 max-w-2xl text-pretty text-base leading-6 text-muted-foreground">
-            Answer questions, follow results, and share a quiz with your group.
+            Answer questions, follow results, and share a poll with your group.
           </p>
         </header>
 

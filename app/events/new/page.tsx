@@ -22,12 +22,12 @@ export default async function NewEventPage({
             href="/discover"
             className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            ← Discover quizzes
+            ← Discover polls
           </Link>
           <div className="mt-5 rounded-xl border border-border bg-surface-1 p-6 text-center sm:p-8">
-            <h1 className="text-balance text-2xl font-bold">Sign in to create a quiz</h1>
+            <h1 className="text-balance text-2xl font-bold">Sign in to create a poll</h1>
             <p className="mx-auto mt-2 max-w-sm text-pretty text-sm leading-5 text-muted-foreground">
-              Quiz creation needs a Google account so your quizzes have a real owner.
+              Poll creation needs a Google account so your polls have a real owner.
               Voting stays open to everyone.
             </p>
             <div className="mt-5">
@@ -70,7 +70,7 @@ export default async function NewEventPage({
         eventId: draft.id,
         draftVersion: draft.draftVersion,
         hasPasscode: draft.passcodeHash !== null,
-        title: draft.title === "Untitled quiz" ? "" : draft.title,
+        title: draft.title === "Untitled poll" || draft.title === "Untitled quiz" ? "" : draft.title,
         description: draft.description ?? "",
         opensAt: draft.opensAt.toISOString(),
         closesAt: draft.closesAt.toISOString(),
@@ -107,7 +107,7 @@ export default async function NewEventPage({
           href="/discover"
           className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          ← Discover quizzes
+          ← Discover polls
         </Link>
         <div className="mt-4">
           <Wizard initial={initial} />

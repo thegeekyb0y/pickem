@@ -95,7 +95,7 @@ export async function unlockPrivateEvent(
 
   const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
   if (!event || event.visibility !== "passcode" || !event.passcodeHash) {
-    return { ok: false, message: "This private quiz is unavailable." };
+    return { ok: false, message: "This private poll is unavailable." };
   }
   const requestHeaders = await headers();
   if (!(await limitPasscodeAttempt(getClientIp(requestHeaders), eventId))) {
@@ -134,10 +134,10 @@ export async function unlockPrivateEvent(
 
 export async function submitVote(input: VoteInput): Promise<VoteResult> {
   if (!UUID_PATTERN.test(input.eventId) || !Array.isArray(input.answers)) {
-    return { ok: false, reason: "invalid", message: "Submit valid answers for this quiz." };
+    return { ok: false, reason: "invalid", message: "Submit valid answers for this poll." };
   }
   if (input.answers.length < 1 || input.answers.length > 20) {
-    return { ok: false, reason: "invalid", message: "Answer every quiz question before submitting." };
+    return { ok: false, reason: "invalid", message: "Answer every question before submitting." };
   }
   if (input.answers.some((answer) =>
     !answer ||
@@ -227,7 +227,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         .where(eq(events.id, input.eventId))
         .for("key share");
       if (!event) {
-        return { ok: false, reason: "error", message: "This quiz could not be found." };
+        return { ok: false, reason: "error", message: "This poll could not be found." };
       }
 
       const [{ dbNow }] = await tx
@@ -235,7 +235,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         .from(events)
         .where(eq(events.id, event.id));
       if (!isVoteWindowOpen(event, new Date(dbNow))) {
-        return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
+        return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
       }
 
       if (event.visibility === "passcode" && event.passcodeHash) {
@@ -254,7 +254,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
               )
           : [];
         if (!unlock) {
-          return { ok: false, reason: "locked", message: "Unlock this quiz before voting." };
+          return { ok: false, reason: "locked", message: "Unlock this poll before voting." };
         }
       }
 
@@ -396,7 +396,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
   } catch (error) {
     const message = describeError(error);
     if (error instanceof VoteWindowClosedError) {
-      return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
+      return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
     }
     if (
       message.includes("votes_logged_in_dedupe_unique") ||
@@ -406,16 +406,16 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
       return {
         ok: false,
         reason: "already-voted",
-        message: "A ballot has already been submitted for this quiz.",
+        message: "A response has already been submitted for this poll.",
       };
     }
     if (message.includes("Voting is not open")) {
-      return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
+      return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
     }
     return {
       ok: false,
       reason: "error",
-      message: "Couldn’t submit your ballot. Your selections are still here; please try again.",
+      message: "Couldn’t submit your answers. Your selections are still here; please try again.",
     };
   }
 }

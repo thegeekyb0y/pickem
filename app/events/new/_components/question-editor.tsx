@@ -24,7 +24,6 @@ import type { QuizQuestionInput } from "@/lib/events/quiz-validation";
 
 export type QuizOptionState = QuizQuestionInput["options"][number] & {
   key: string;
-  showDetails: boolean;
   showImage: boolean;
   imageMode: "upload" | "link";
   uploading: boolean;
@@ -99,7 +98,7 @@ function OptionEditor({
   }
 
   return (
-    <li className="rounded-lg border border-border bg-surface-1 p-3 sm:p-4">
+    <li className="rounded-lg border border-border bg-surface-1 p-2.5 sm:p-3">
       <div className="flex items-start justify-between gap-3">
         <InputGroup className="font-fluid w-full max-w-none">
           <InputField
@@ -127,37 +126,13 @@ function OptionEditor({
         </Button>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-        <Switch
-          label="Add description"
-          checked={option.showDetails}
-          onToggle={() => update({ showDetails: !option.showDetails })}
-        />
+      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
         <Switch
           label="Add image"
           checked={option.showImage}
           onToggle={() => update({ showImage: !option.showImage })}
         />
       </div>
-
-      {option.showDetails ? (
-        <div className="mt-3">
-          <label htmlFor={`${prefix}-description`} className="mb-1 block text-sm font-medium">
-            Option description
-          </label>
-          <textarea
-            id={`${prefix}-description`}
-            value={option.description}
-            rows={2}
-            maxLength={1000}
-            onChange={(event) => update({ description: event.target.value })}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          />
-          {errors[`${prefix}-description`] ? (
-            <p role="alert" className="mt-1 text-sm text-accent">{errors[`${prefix}-description`]}</p>
-          ) : null}
-        </div>
-      ) : null}
 
       {option.showImage ? (
         <div className="mt-3 space-y-3">
@@ -341,7 +316,7 @@ function QuestionCard({
       dragListener={false}
       dragControls={dragControls}
       transition={spring.moderate}
-      className="relative rounded-xl border border-border bg-surface-1 p-4 sm:p-5"
+      className="relative rounded-xl border border-border bg-surface-1 p-3 sm:p-4"
       aria-labelledby={`${questionPrefix}-heading`}
     >
       <div className="flex items-start gap-2">
@@ -427,24 +402,8 @@ function QuestionCard({
               />
             </InputGroup>
           </div>
-          <div className="mt-3">
-            <label htmlFor={`${questionPrefix}-description`} className="mb-1 block text-sm font-medium">
-              Description <span className="font-normal text-muted-foreground">(optional)</span>
-            </label>
-            <textarea
-              id={`${questionPrefix}-description`}
-              value={question.description}
-              rows={2}
-              maxLength={2000}
-              onChange={(event) => update({ description: event.target.value })}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            />
-            {errors[`${questionPrefix}-description`] ? (
-              <p role="alert" className="mt-1 text-sm text-accent">{errors[`${questionPrefix}-description`]}</p>
-            ) : null}
-          </div>
 
-          <div className="mt-4">
+          <div className="mt-3">
             <Select
               value={question.pickType}
               onValueChange={(value) => {
@@ -461,10 +420,8 @@ function QuestionCard({
                 <SelectItem index={1} value="top_n">Pick top N — rank answers</SelectItem>
               </SelectContent>
             </Select>
-            {question.pickType === "single" ? (
-              <p className="mt-2 text-xs text-muted-foreground">Voters choose one option.</p>
-            ) : (
-              <div className="mt-3 max-w-xs">
+            {question.pickType === "top_n" ? (
+              <div className="mt-2 max-w-xs">
                 <label htmlFor={`${questionPrefix}-max-picks`} className="mb-1 block text-sm font-medium">
                   Rank limit
                 </label>
@@ -489,10 +446,10 @@ function QuestionCard({
                 </Select>
                 <p className="mt-1 text-xs text-muted-foreground">Voters may rank fewer, but must choose at least one.</p>
               </div>
-            )}
+            ) : null}
           </div>
 
-          <div className="mt-5 border-t border-border pt-4">
+          <div className="mt-4 border-t border-border pt-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="font-semibold text-foreground">Answer options</h3>
               <p className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -502,7 +459,7 @@ function QuestionCard({
             {errors[`${questionPrefix}-options`] ? (
               <p role="alert" className="mt-2 text-sm text-accent">{errors[`${questionPrefix}-options`]}</p>
             ) : null}
-            <ul className="mt-3 space-y-3" aria-label={`Answer options for question ${index + 1}`}>
+            <ul className="mt-2 space-y-2" aria-label={`Answer options for question ${index + 1}`}>
               {question.options.map((option, optionIndex) => (
                 <OptionEditor
                   key={option.key}
@@ -603,8 +560,8 @@ export default function QuestionEditor({
             return question ? [question] : [];
           }));
         }}
-        className="m-0 list-none space-y-4 p-0"
-        aria-label="Quiz questions"
+        className="m-0 list-none space-y-3 p-0"
+        aria-label="Poll questions"
       >
         {questions.map((question, index) => (
           <QuestionCard
@@ -639,7 +596,7 @@ export default function QuestionEditor({
               {pendingDelete?.kind === "question" ? "Delete this question?" : "Delete this answer option?"}
             </DialogTitle>
             <DialogDescription id="question-delete-description">
-              This change removes the selected content from the quiz draft.
+              This change removes the selected content from the poll draft.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -663,7 +620,6 @@ export function blankOption(): QuizOptionState {
     imageUrl: "",
     imageBlobKey: "",
     imageAlt: "",
-    showDetails: false,
     showImage: false,
     imageMode: "upload",
     uploading: false,

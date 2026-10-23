@@ -18,7 +18,7 @@ test("root remains Discover and navigation links to /discover", async ({ page })
   await page.goto("/");
 
   const mobileNav = page.getByRole("navigation", { name: "Mobile navigation" });
-  await expect(page.getByRole("heading", { name: "Discover quizzes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discover polls" })).toBeVisible();
   await expect(mobileNav.getByRole("link", { name: "Discover" })).toHaveAttribute(
     "aria-current",
     "page",
@@ -28,7 +28,7 @@ test("root remains Discover and navigation links to /discover", async ({ page })
   await expect(mobileNav.getByRole("link", { name: "Profile" })).toHaveCount(0);
 
   await page.goto("/discover");
-  await expect(page.getByRole("heading", { name: "Discover quizzes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discover polls" })).toBeVisible();
   await page.getByRole("tab", { name: "Closed" }).click();
   await expect(page).toHaveURL(/\/discover\?view=closed$/);
   await expect(page.getByRole("tab", { name: "Closed" })).toHaveAttribute(

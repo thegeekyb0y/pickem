@@ -124,7 +124,7 @@ export default function QuizCoverPicker({
           Cover image
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          A wide banner appears on this quiz and its Discover card.
+          A wide banner appears on this poll and its Discover card.
         </p>
       </div>
 
