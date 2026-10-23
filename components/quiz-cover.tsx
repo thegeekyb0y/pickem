@@ -17,7 +17,7 @@ type QuizCoverProps = {
 const layoutClasses = {
   banner: "aspect-[2/1] sm:aspect-[4/1] lg:aspect-[7/1]",
   card: "aspect-[3/1]",
-  preview: "aspect-[2/1] sm:aspect-[4/1] lg:aspect-[7/1]",
+  preview: "aspect-[3/1]",
 } as const;
 
 export default function QuizCover({
