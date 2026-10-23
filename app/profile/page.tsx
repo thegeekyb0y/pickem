@@ -152,9 +152,9 @@ export default async function ProfilePage() {
                             ? "green"
                             : quiz.status === "scheduled"
                               ? "amber"
-                              : quiz.status === "cancelled"
-                                ? "red"
-                                : "gray"
+                            : quiz.status === "cancelled"
+                              ? "red"
+                              : "sky"
                         }
                       >
                         {quiz.status}

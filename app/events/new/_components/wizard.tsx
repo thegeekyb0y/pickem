@@ -489,7 +489,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
               Every question is required. Add 1–20 questions, each with 2–8 options.
             </p>
           </div>
-          <Badge size="compact" color="gray">{questions.length} / 20</Badge>
+          <Badge size="compact" color="sky">{questions.length} / 20</Badge>
         </div>
         <QuestionEditor
           questions={questions}

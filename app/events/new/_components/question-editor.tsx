@@ -358,7 +358,7 @@ function QuestionCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Badge size="compact" color="gray">Question {index + 1}</Badge>
+              <Badge size="compact" color="sky">Question {index + 1}</Badge>
               <Badge size="compact" variant="dot" color="amber">Required</Badge>
             </div>
             <div className="flex flex-wrap items-center gap-1">
