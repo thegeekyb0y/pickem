@@ -75,7 +75,6 @@ function toQuestionState(question: WizardQuestionInitial): QuizQuestionState {
         imageUrl: option.imageUrl,
         imageBlobKey: option.imageBlobKey,
         imageAlt: option.imageAlt,
-        showImage: option.imageUrl !== "",
         imageMode: option.imageSource === "external_url" ? "link" as const : "upload" as const,
         uploading: false,
         imageError: null,
@@ -95,14 +94,14 @@ function toSaveQuestions(questions: QuizQuestionState[]) {
       label: option.label,
       description: "",
       imageSource:
-        !option.showImage || option.imageUrl.trim() === ""
+        option.imageUrl.trim() === ""
           ? "none" as const
           : option.imageMode === "link"
             ? "external_url" as const
             : "blob" as const,
-      imageUrl: option.showImage ? option.imageUrl : "",
-      imageBlobKey: option.showImage ? option.imageBlobKey : "",
-      imageAlt: option.showImage ? option.imageAlt : "",
+      imageUrl: option.imageUrl,
+      imageBlobKey: option.imageUrl ? option.imageBlobKey : "",
+      imageAlt: option.imageUrl ? option.imageAlt : "",
     })),
   }));
 }
@@ -489,7 +488,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
               Every question is required. Add 1–20 questions, each with 2–8 options.
             </p>
           </div>
-          <Badge size="compact" color="gray">{questions.length} / 20</Badge>
+          <Badge size="compact" color="sky">{questions.length} / 20</Badge>
         </div>
         <QuestionEditor
           questions={questions}

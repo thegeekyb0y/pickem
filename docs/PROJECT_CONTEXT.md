@@ -26,9 +26,12 @@ Last updated: 2026-10-23.
   is expected to track `main`; confirm the Vercel deployment before the smoke
   test.
 - Local `main` and `origin/main` are aligned at `4d299e0`.
+- `feat/phase-2-poll-polish`, branched from `origin/main`, is open as PR #5. It
+  contains the Phase 2 poll pass and follow-up phases 1–5: Discover tab
+  treatment, sky-neutral badges, inline option images, the compact cover editor
+  with focal point, and fully clickable Discover cards.
 - Local `feature/fluid-quiz-builder` is `cf101c5`, fully contained in
-  `origin/main`. Phase 2 work is uncommitted on `feat/phase-2-poll-polish`,
-  branched from `origin/main`.
+  `origin/main`.
 - Safety branches: `backup/wip-quiz-builder` (`f3abaa6`) and
   `backup/pre-split-37cc032` (`37cc032`)
 - Phase 1 reliability fixes, merged as PR #4, cover the question/option
@@ -62,6 +65,7 @@ Last updated: 2026-10-23.
 | `18d8d1b` | feature branch | Stacked question editor |
 | `0fc4317` | feature branch | Voting/results/Discover surfaces |
 | `9de50a0` | feature branch | Quiz and load-flow tests |
+| `ecc8887`–`eaa8971` | `feat/phase-2-poll-polish` | Poll polish phases 1–5 (PR #5) |
 | `HEAD` | feature branch | Implementation-state docs |
 
 ## Domain model
@@ -172,10 +176,15 @@ only) has its own migration gate.
   and option descriptions are removed, the date-picker popover mounts normally,
   status tabs are compact, and profile settings are cleaned up. Internal
   identifiers and database column names are unchanged.
-- WIP cover flow: presets, Unsplash search route/cache/credit, client image
-  preparation, sharp/WebP upload, cover rendering on cards and quiz pages. The
-  next cover pass replaces Unsplash with owner-supplied pattern/preset artwork,
-  custom uploads, and cropping.
+- Follow-up poll polish (PR #5): selected Discover tabs keep the raised pill
+  without the orange focus treatment or shadow; neutral badges use a sky tint;
+  option images use an inline thumbnail button plus popover; the cover editor is
+  compact with a persisted focal point; and the whole Discover card is
+  clickable with Lucide metadata icons.
+- WIP cover flow: preset patterns, client image preparation, sharp/WebP upload,
+  focal-point rendering on cards and poll pages, and legacy Unsplash rendering.
+  The picker no longer offers Unsplash, but its route, cache, credit, and
+  metadata paths remain for existing covers.
 - WIP multi-question voting: one stacked page, answered count, atomic batched
   answer insert, per-question results, cache/version updates.
 - WIP tests and load scripts: quiz validation, quiz integrity, date picker,
@@ -183,25 +192,24 @@ only) has its own migration gate.
 
 ## Rehearsal and test status
 
-- Lint, typecheck, unit tests, integration tests, and production build pass.
-  Unit tests: 13 files / 66 tests. Integration tests: 4 files / 16 tests,
-  including the new `save-quiz` draft/publish regression.
+- Lint, typecheck, unit tests, integration tests, Playwright tests, and
+  production build pass on PR #5. Unit tests: 13 files / 66 tests. Integration
+  tests: 4 files / 16 tests, including the `save-quiz` draft/publish regression.
+  Playwright: 4 tests.
 - Migration `0006` passed local rehearsal against `pickem-test-pg`: migrations
   `0000`–`0005`, legacy seed data, then `drizzle-kit migrate` for `0006`.
   It is applied to Neon production. The old production trigger function kept an
   `event_id` variable because `0006` was edited after being applied; `0007`
   forwards the corrected `quiz_id` definition without rewriting history.
-- Phase 2 re-verification: lint, typecheck, 66 unit tests, 16 integration tests,
-  production build, and all 4 Playwright tests pass on
-  `feat/phase-2-poll-polish`. Integration/e2e require
-  `ALLOW_TEST_DB_MUTATION=1`.
+- PR #5 re-verification: lint, typecheck, 66 unit tests, 16 integration tests,
+  production build, and all 4 Playwright tests pass. Integration/e2e use the
+  local `pickem-test-pg` container and require `ALLOW_TEST_DB_MUTATION=1`.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
   “closed” mapping, ambiguous PL/pgSQL `event_id` variable in a trigger, a
   Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, and
   an invalid `Intl.DateTimeFormat` option plus locale hydration mismatch.
-- Phase 1 history is merged; Phase 2 changes are uncommitted on
-  `feat/phase-2-poll-polish` pending review and commit.
+- PR #5 contains the Phase 2 pass and follow-up phases 1–5, with no migration.
 - User-facing copy now says poll/response; identifiers such as `quiz_id`,
   `saveQuiz`, `home:polls`, and `poll-options/` remain intentionally unchanged.
 - Earlier edits failed with `Unknown: FileSystem.writeFile` on several files,
@@ -210,20 +218,21 @@ only) has its own migration gate.
   and the user account has `FullControl`; no persistent cause was found. Treat
   it as a transient file-lock/tool write failure. Do not retry more than twice;
   stop and report instead.
-- Cover crop work, owner-supplied pattern artwork, and wireframe/aspect-ratio
-  decisions are deferred to the cover redesign.
+- Compact cover editing and persisted focal points are implemented. Final
+  owner-supplied pattern artwork and wireframe/aspect-ratio decisions remain
+  open.
 - Social link and account deletion are not implemented.
 - Docs previously claimed quiz work had not started; this file and the quiz plan
   are now the source of truth for the WIP state.
 
 ## Known gaps and next steps
 
-1. **Review and ship Phase 2.** Review the uncommitted poll-builder diff, commit,
-   open a PR, and smoke-test create/autosave/reload/publish/vote on a preview.
-   No migration is involved.
-2. **Cover redesign.** Replace Unsplash with owner-supplied preset/pattern
-   artwork and custom uploads, use a compact thumbnail editor, and add cropping
-   that persists crop/focal data in `cover_meta`.
+1. **Review and merge PR #5.** Smoke-test create/autosave/reload/publish/vote,
+   the compact cover editor and focal point, and Discover-card navigation on a
+   preview. No migration is involved.
+2. **Finalize cover artwork.** Replace the remaining generated preset gradients
+   with the owner-supplied pattern/preset artwork when it exists and confirm the
+   final wireframe aspect ratio.
 3. **Migration `0008` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
    only after a production create/vote smoke test. Keep it separate from UI work

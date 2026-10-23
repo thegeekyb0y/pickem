@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CalendarClock, ListChecks, Vote } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import QuizCover from "@/components/quiz-cover";
 import type { EventListItem } from "@/lib/events/list";
@@ -20,7 +21,7 @@ export default function EventCard({
 
   return (
     <li className="list-none">
-      <article className="min-h-48 overflow-hidden rounded-xl border border-border bg-surface-1 hover:border-accent">
+      <article className="relative min-h-48 overflow-hidden rounded-xl border border-border bg-surface-1 hover:border-accent">
         {poll.coverKind !== "none" ? (
           <div className="px-3 pt-3">
             <QuizCover
@@ -36,15 +37,11 @@ export default function EventCard({
             <Badge size="compact" variant="dot" color={phaseColor}>
               {phaseLabel}
             </Badge>
-            <span className="text-xs font-medium text-muted-foreground">
-              {new Intl.NumberFormat().format(poll.questionCount)}{" "}
-              {poll.questionCount === 1 ? "question" : "questions"}
-            </span>
           </div>
           <h3 className="mt-4 line-clamp-2 text-balance text-xl font-bold">
             <Link
               href={`/events/${poll.id}`}
-              className="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="rounded-sm after:absolute after:inset-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {poll.title}
             </Link>
@@ -55,14 +52,23 @@ export default function EventCard({
             </p>
           ) : null}
           <div className="mt-5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
-            <span className="text-foreground">
+            <span className="inline-flex items-center gap-1.5 text-foreground">
+              <ListChecks aria-hidden="true" className="size-3.5 text-muted-foreground" />
+              {new Intl.NumberFormat().format(poll.questionCount)}{" "}
+              {poll.questionCount === 1 ? "question" : "questions"}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-foreground">
+              <Vote aria-hidden="true" className="size-3.5 text-muted-foreground" />
               {new Intl.NumberFormat().format(poll.ballotCount)}{" "}
               {poll.ballotCount === 1 ? "response" : "responses"}
             </span>
           </div>
-          <p className="mt-2 text-xs text-subtle-foreground">
-            {phase === "scheduled" ? "Opens " : phase === "closed" ? "Closed " : "Closes "}
-            {dateTime.format(phase === "scheduled" ? poll.opensAt : poll.closesAt)}
+          <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-subtle-foreground">
+            <CalendarClock aria-hidden="true" className="size-3.5" />
+            <span>
+              {phase === "scheduled" ? "Opens " : phase === "closed" ? "Closed " : "Closes "}
+              {dateTime.format(phase === "scheduled" ? poll.opensAt : poll.closesAt)}
+            </span>
           </p>
           {poll.coverKind === "unsplash" && poll.coverMeta?.photographer ? (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -72,7 +78,7 @@ export default function EventCard({
                   href={poll.coverMeta.photographerUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  className="relative z-10 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 >
                   {poll.coverMeta.photographer}
                 </a>

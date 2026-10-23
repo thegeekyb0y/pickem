@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { Reorder, useDragControls } from "motion/react";
-import { ChevronDown, ChevronUp, Copy, GripVertical, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, GripVertical, ImagePlus, Link, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,15 +16,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { InputField, InputGroup } from "@/components/ui/input-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
 import { spring } from "@/lib/springs";
 import { uploadOptionImage } from "@/lib/events/actions";
 import type { QuizQuestionInput } from "@/lib/events/quiz-validation";
 
 export type QuizOptionState = QuizQuestionInput["options"][number] & {
   key: string;
-  showImage: boolean;
   imageMode: "upload" | "link";
   uploading: boolean;
   imageError: string | null;
@@ -43,6 +50,180 @@ function validHttpUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function OptionImageControl({
+  option,
+  optionIndex,
+  prefix,
+  update,
+  errors,
+  onUpload,
+  onAttach,
+}: {
+  option: QuizOptionState;
+  optionIndex: number;
+  prefix: string;
+  update: (patch: Partial<QuizOptionState>) => void;
+  errors: Record<string, string>;
+  onUpload: (file: File | undefined) => void;
+  onAttach: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const error = option.imageError ?? errors[`${prefix}-image`];
+
+  function changeMode(value: string) {
+    if (value === "link") {
+      update({
+        imageMode: "link",
+        imageSource: option.linkDraft.trim() ? "external_url" : "none",
+        imageUrl: option.linkDraft.trim(),
+        imageBlobKey: "",
+      });
+    } else if (value === "upload") {
+      const keepUpload = option.imageSource === "blob";
+      update({
+        imageMode: "upload",
+        imageSource: keepUpload ? "blob" : "none",
+        imageUrl: keepUpload ? option.imageUrl : "",
+        imageBlobKey: keepUpload ? option.imageBlobKey : "",
+      });
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-compact"
+          aria-label={
+            option.imageUrl
+              ? `Change option ${optionIndex + 1} image`
+              : `Add an image to option ${optionIndex + 1}`
+          }
+          className="size-7 min-h-7 min-w-7 overflow-hidden rounded-md border border-border bg-surface-1 p-0 text-muted-foreground"
+        >
+          {option.imageUrl ? (
+            <Image
+              src={option.imageUrl}
+              alt=""
+              width={56}
+              height={56}
+              unoptimized
+              className="size-full object-cover"
+            />
+          ) : (
+            <ImagePlus aria-hidden="true" />
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-[min(21rem,calc(100vw-2rem))] space-y-3 p-3"
+      >
+        <PopoverHeader>
+          <PopoverTitle>Option image</PopoverTitle>
+          <PopoverDescription>Optional. Add an image to this answer choice.</PopoverDescription>
+        </PopoverHeader>
+
+        <Tabs value={option.imageMode} onValueChange={changeMode} size="compact">
+          <TabsList aria-label="Image source" className="w-full">
+            <TabItem value="upload" label="Upload" icon={Upload} />
+            <TabItem value="link" label="Paste URL" icon={Link} />
+          </TabsList>
+
+          <TabPanel value="upload" className="pt-3">
+            <label htmlFor={`${prefix}-file`} className="block text-sm font-medium">
+              Choose image
+            </label>
+            <input
+              id={`${prefix}-file`}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={option.uploading}
+              onChange={(event) => {
+                onUpload(event.currentTarget.files?.[0]);
+                event.currentTarget.value = "";
+              }}
+              className="mt-1 block w-full text-xs text-foreground file:mr-2 file:min-h-9 file:rounded-md file:border file:border-border file:bg-surface-1 file:px-3 file:text-xs file:font-medium file:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">PNG, JPEG, or WebP, under 4 MB.</p>
+            {option.uploading ? (
+              <p role="status" aria-live="polite" className="mt-1 text-xs text-muted-foreground">
+                Uploading…
+              </p>
+            ) : null}
+          </TabPanel>
+
+          <TabPanel value="link" className="pt-3">
+            <InputGroup className="font-fluid w-full">
+              <InputField
+                id={`${prefix}-url`}
+                type="url"
+                inputMode="url"
+                label="Image URL"
+                index={0}
+                value={option.linkDraft}
+                onChange={(linkDraft) => update({ linkDraft, imageError: null })}
+                placeholder="https://example.com/image.jpg"
+                disabled={option.uploading}
+              />
+            </InputGroup>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onAttach}
+              className="font-fluid mt-2 min-h-9 w-full"
+            >
+              Attach image
+            </Button>
+          </TabPanel>
+        </Tabs>
+
+        {error ? (
+          <p role="alert" className="text-sm text-accent">{error}</p>
+        ) : null}
+
+        {option.imageUrl ? (
+          <>
+            <InputGroup className="font-fluid w-full">
+              <InputField
+                id={`${prefix}-alt`}
+                label="Alt text"
+                index={0}
+                value={option.imageAlt}
+                onChange={(imageAlt) => update({ imageAlt })}
+                maxLength={180}
+                placeholder="Describe the image"
+                error={errors[`${prefix}-image-alt`]}
+              />
+            </InputGroup>
+            <Button
+              type="button"
+              variant="ghost"
+              size="compact"
+              leadingIcon={Trash2}
+              className="font-fluid min-h-9 px-3"
+              onClick={() =>
+                update({
+                  imageSource: "none",
+                  imageUrl: "",
+                  imageBlobKey: "",
+                  imageAlt: "",
+                  linkDraft: "",
+                })
+              }
+            >
+              Remove image
+            </Button>
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function OptionEditor({
@@ -105,6 +286,17 @@ function OptionEditor({
             id={`${prefix}-label`}
             name={`${prefix}-label`}
             label={`Option ${optionIndex + 1}`}
+            leading={
+              <OptionImageControl
+                option={option}
+                optionIndex={optionIndex}
+                prefix={prefix}
+                update={update}
+                errors={errors}
+                onUpload={(file) => void chooseFile(file)}
+                onAttach={attachLink}
+              />
+            }
             index={0}
             value={option.label}
             onChange={(label) => update({ label })}
@@ -125,142 +317,6 @@ function OptionEditor({
           <Trash2 aria-hidden="true" />
         </Button>
       </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
-        <Switch
-          label="Add image"
-          checked={option.showImage}
-          onToggle={() => update({ showImage: !option.showImage })}
-        />
-      </div>
-
-      {option.showImage ? (
-        <div className="mt-3 space-y-3">
-          <div className="max-w-sm">
-            <label htmlFor={`${prefix}-image-source`} className="mb-1 block text-sm font-medium">
-              Image source
-            </label>
-            <Select
-              value={option.imageMode}
-              onValueChange={(value) => {
-                if (value === "link") {
-                  update({
-                    imageMode: value,
-                    imageSource: option.linkDraft.trim() ? "external_url" : "none",
-                    imageUrl: option.linkDraft.trim(),
-                    imageBlobKey: "",
-                  });
-                } else if (value === "upload") {
-                  const keepUpload = option.imageSource === "blob";
-                  update({
-                    imageMode: value,
-                    imageSource: keepUpload ? "blob" : "none",
-                    imageUrl: keepUpload ? option.imageUrl : "",
-                    imageBlobKey: keepUpload ? option.imageBlobKey : "",
-                  });
-                }
-              }}
-            >
-              <SelectTrigger
-                id={`${prefix}-image-source`}
-                className="font-fluid min-h-11 w-full"
-                placeholder="Choose image source"
-              />
-              <SelectContent>
-                <SelectItem index={0} value="upload">
-                  Upload image
-                </SelectItem>
-                <SelectItem index={1} value="link">
-                  Paste image URL
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {option.imageMode === "upload" ? (
-            <p className="mt-2">
-              <label htmlFor={`${prefix}-file`} className="mb-1 block text-sm font-medium">
-                Choose option image
-              </label>
-              <input
-                id={`${prefix}-file`}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={option.uploading}
-                onChange={(event) => {
-                  void chooseFile(event.currentTarget.files?.[0]);
-                  event.currentTarget.value = "";
-                }}
-                className="block w-full text-sm text-foreground file:mr-3 file:min-h-11 file:rounded-md file:border file:border-border file:bg-surface-1 file:px-3 file:font-medium file:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              />
-              <span className="mt-1 block text-xs text-muted-foreground">
-                PNG, JPEG, or WebP, under 4 MB.
-              </span>
-            </p>
-          ) : (
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <label htmlFor={`${prefix}-url`} className="mb-1 block text-sm font-medium">
-                  Option image URL
-                </label>
-                <input
-                  id={`${prefix}-url`}
-                  type="url"
-                  inputMode="url"
-                  value={option.linkDraft}
-                  placeholder="https://…"
-                  onChange={(event) => update({ linkDraft: event.target.value, imageError: null })}
-                  aria-invalid={Boolean(errors[`${prefix}-image`] || option.imageError)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                />
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={attachLink}
-                className="font-fluid min-h-11 px-4"
-              >
-                Attach
-              </Button>
-            </div>
-          )}
-          {option.imageError || errors[`${prefix}-image`] ? (
-            <p role="alert" className="text-sm text-accent">{option.imageError ?? errors[`${prefix}-image`]}</p>
-          ) : null}
-          {option.imageUrl ? (
-            <div className="flex items-center gap-3">
-              <Image
-                src={option.imageUrl}
-                alt={option.imageAlt || ""}
-                width={48}
-                height={48}
-                unoptimized
-                className="size-12 shrink-0 rounded-md border border-border object-cover"
-              />
-              <InputGroup className="font-fluid min-w-0 flex-1">
-                <InputField
-                  id={`${prefix}-alt`}
-                  label="Image alt text"
-                  index={0}
-                  value={option.imageAlt}
-                  onChange={(imageAlt) => update({ imageAlt })}
-                  maxLength={180}
-                  placeholder="Describe the image"
-                  error={errors[`${prefix}-image-alt`]}
-                />
-              </InputGroup>
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                className="font-fluid min-h-10 px-3"
-                onClick={() => update({ imageUrl: "", imageBlobKey: "", imageAlt: "", linkDraft: "" })}
-              >
-                Remove image
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </li>
   );
 }
@@ -358,7 +414,7 @@ function QuestionCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Badge size="compact" color="gray">Question {index + 1}</Badge>
+              <Badge size="compact" color="sky">Question {index + 1}</Badge>
               <Badge size="compact" variant="dot" color="amber">Required</Badge>
             </div>
             <div className="flex flex-wrap items-center gap-1">
@@ -620,7 +676,6 @@ export function blankOption(): QuizOptionState {
     imageUrl: "",
     imageBlobKey: "",
     imageAlt: "",
-    showImage: false,
     imageMode: "upload",
     uploading: false,
     imageError: null,

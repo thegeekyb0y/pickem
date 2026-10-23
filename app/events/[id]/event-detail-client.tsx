@@ -321,7 +321,7 @@ export default function EventDetailClient({
                             </p>
                           ) : null}
                         </div>
-                        <Badge size="compact" color="gray">
+                        <Badge size="compact" color="sky">
                           {question.pickType === "single" ? "Pick one" : `Pick top ${question.maxPicks}`}
                         </Badge>
                       </div>

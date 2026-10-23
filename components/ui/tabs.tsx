@@ -180,10 +180,14 @@ Tabs.displayName = "Tabs";
 
 /* ─────────────────────── TabsList ─────────────────────── */
 
-type TabsListProps = ComponentPropsWithoutRef<typeof TabsPrimitive.List>;
+type TabsListProps = ComponentPropsWithoutRef<typeof TabsPrimitive.List> & {
+  /** Selection treatment. `raised` is the default segmented pill; `flat`
+   *  keeps the pill's fill but drops its shadow for quieter filter bars. */
+  indicator?: "raised" | "flat";
+};
 
 const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
-  ({ children, className, ...props }, ref) => {
+  ({ children, className, indicator = "raised", ...props }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     // Whether the pointer is over the list: a ref for blur, which reads it at
     // the moment it runs, and the same flag as state for the render, which
@@ -358,8 +362,10 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
               className={cn(
                 "absolute pointer-events-none",
                 // A raised surface (background + shadow), not a tint, so the
-                // selected tab lifts off the muted track.
+                // selected tab lifts off the muted track. Flat keeps the fill
+                // but drops the shadow on bordered filter bars.
                 surfaceClasses(indicatorLevel),
+                indicator === "flat" && "shadow-none",
                 shape.bg
               )}
               initial={false}

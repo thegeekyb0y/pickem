@@ -98,6 +98,7 @@ interface InputFieldProps
   labelHidden?: boolean;
   placeholder?: string;
   icon?: IconComponent;
+  leading?: ReactNode;
   index: number;
   value: string;
   onChange: (value: string) => void;
@@ -113,6 +114,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       labelHidden,
       placeholder,
       icon: Icon,
+      leading,
       index,
       value,
       onChange,
@@ -228,6 +230,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             // padding) focused the input. Keep that, without disturbing the
             // input's own caret placement.
             if (e.target === inputRef.current) return;
+            if ((e.target as HTMLElement).closest("[data-input-leading]")) return;
             e.preventDefault();
             inputRef.current?.focus();
           }}
@@ -243,6 +246,11 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
         >
           {/* The icon wakes with the field: muted → foreground and stroke
               1.5 → 2 over 80ms. */}
+          {leading ? (
+            <span data-input-leading className="shrink-0">
+              {leading}
+            </span>
+          ) : null}
           {Icon && (
             <Icon
               size={sizeClasses.icon}
