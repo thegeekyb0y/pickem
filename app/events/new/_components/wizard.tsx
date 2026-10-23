@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { InputField, InputGroup } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import QuizCoverPicker from "./quiz-cover-picker";
+import QuestionEditor, { blankQuestion, type QuizQuestionState } from "./question-editor";
+import { saveQuiz, type SaveQuizInput, type Visibility } from "@/lib/events/actions";
+import { parseUtcInstant } from "@/lib/events/date-time";
+import { validateQuizQuestions } from "@/lib/events/quiz-validation";
+import type { QuizCoverKind, QuizCoverMeta } from "@/db/schema/app";
 import { cn } from "@/lib/cn";
-import { utcInstantToLocalInput } from "@/lib/events/date-time";
-import {
-  saveEvent,
-  uploadOptionImage,
-  type OptionInput,
-  type Visibility,
-} from "@/lib/events/actions";
 
 const DateTimePicker = dynamic(
   () => import("./date-time-picker").then((module) => module.DateTimePicker),
@@ -27,1138 +29,467 @@ const DateTimePicker = dynamic(
   },
 );
 
-export type WizardOptionState = {
-  key: string;
-  label: string;
+export type WizardQuestionInitial = {
+  prompt: string;
   description: string;
-  showDetails: boolean;
-  showImage: boolean;
-  imageMode: "upload" | "link";
-  imageUrl: string;
-  imageBlobKey: string;
-  imageAlt: string;
-  uploading: boolean;
-  imageError: string | null;
-  linkDraft: string;
+  pickType: "single" | "top_n";
+  maxPicks: number;
+  options: {
+    label: string;
+    description: string;
+    imageSource: "none" | "blob" | "external_url";
+    imageUrl: string;
+    imageBlobKey: string;
+    imageAlt: string;
+  }[];
 };
 
 export type WizardInitial = {
   eventId: string | null;
-  step: 1 | 2 | 3;
+  draftVersion: number;
+  hasPasscode: boolean;
   title: string;
   description: string;
-  /** UTC ISO instants from the server; converted to browser-local input values. */
   opensAt: string;
   closesAt: string;
   visibility: Visibility;
-  pickType: "single" | "top_n";
-  maxPicks: number;
-  options: Omit<
-    WizardOptionState,
-    "key" | "uploading" | "imageError" | "linkDraft" | "showDetails" | "showImage"
-  >[];
+  coverKind: QuizCoverKind;
+  coverRef: string | null;
+  coverMeta: QuizCoverMeta | null;
+  questions: WizardQuestionInitial[];
 };
 
-const STEP_LABELS = ["Details", "Options", "Review"];
-
-function blankOption(): WizardOptionState {
-  const key =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  return {
-    key,
-    label: "",
-    description: "",
-    showDetails: false,
-    showImage: false,
-    imageMode: "upload",
-    imageUrl: "",
-    imageBlobKey: "",
-    imageAlt: "",
-    uploading: false,
-    imageError: null,
-    linkDraft: "",
-  };
+function newKey() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `key-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function toInput(o: WizardOptionState): OptionInput {
-  return {
-    label: o.label,
-    description: o.description,
-    imageSource:
-      !o.showImage || o.imageUrl.trim() === ""
-        ? "none"
-        : o.imageMode === "link"
-          ? "external_url"
-          : "blob",
-    imageUrl: o.imageUrl,
-    imageBlobKey: o.imageBlobKey,
-    imageAlt: o.imageAlt,
-  };
+function toQuestionState(question: WizardQuestionInitial): QuizQuestionState {
+  const options = question.options.length
+    ? question.options.map((option) => ({
+        key: newKey(),
+        label: option.label === "Untitled option" ? "" : option.label,
+        description: option.description,
+        imageSource: option.imageSource,
+        imageUrl: option.imageUrl,
+        imageBlobKey: option.imageBlobKey,
+        imageAlt: option.imageAlt,
+        showDetails: option.description !== "",
+        showImage: option.imageUrl !== "",
+        imageMode: option.imageSource === "external_url" ? "link" as const : "upload" as const,
+        uploading: false,
+        imageError: null,
+        linkDraft: option.imageSource === "external_url" ? option.imageUrl : "",
+      }))
+    : [blankQuestion().options[0], blankQuestion().options[1]];
+  return { ...question, key: newKey(), options };
 }
 
-function validHttpUrl(value: string) {
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
+function toSaveQuestions(questions: QuizQuestionState[]) {
+  return questions.map((question) => ({
+    prompt: question.prompt,
+    description: question.description,
+    pickType: question.pickType,
+    maxPicks: question.maxPicks,
+    options: question.options.map((option) => ({
+      label: option.label,
+      description: option.description,
+      imageSource:
+        !option.showImage || option.imageUrl.trim() === ""
+          ? "none" as const
+          : option.imageMode === "link"
+            ? "external_url" as const
+            : "blob" as const,
+      imageUrl: option.showImage ? option.imageUrl : "",
+      imageBlobKey: option.showImage ? option.imageBlobKey : "",
+      imageAlt: option.showImage ? option.imageAlt : "",
+    })),
+  }));
 }
 
-function FieldError({ id, message }: { id: string; message: string | undefined }) {
-  return (
-    <AnimatePresence initial={false}>
-      {message ? (
-        <motion.p
-          key={id}
-          id={id}
-          role="alert"
-          initial={{ opacity: 0, y: -2 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.12, ease: "easeOut" }}
-          className="mt-1 text-sm text-accent"
-        >
-          {message}
-        </motion.p>
-      ) : null}
-    </AnimatePresence>
-  );
+function formatSavedAt() {
+  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date());
 }
-
-const inputClass =
-  "w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-foreground placeholder:text-subtle-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
-const labelClass = "mb-1 block text-sm font-medium text-foreground";
-const subscribeToTimezone = () => () => {};
-const getBrowserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-const getServerTimezone = () => "UTC";
 
 export default function Wizard({ initial }: { initial: WizardInitial }) {
   const router = useRouter();
-  const reduceMotion = useReducedMotion();
-  const dur = (v: number) => (reduceMotion ? 0 : v);
+  const [eventId, setEventId] = useState(initial.eventId);
+  const [draftVersion, setDraftVersion] = useState(initial.draftVersion);
+  const eventIdRef = useRef(initial.eventId);
+  const draftVersionRef = useRef(initial.draftVersion);
+  const revisionRef = useRef(0);
+  const savingRef = useRef(false);
+  const queuedSaveRef = useRef(false);
+  const blockedAutoSaveRef = useRef(false);
+  const publishingRef = useRef(false);
 
-  const [eventId, setEventId] = useState<string | null>(initial.eventId);
-  const [step, setStep] = useState<1 | 2 | 3>(initial.step);
-  const [direction, setDirection] = useState(1);
   const [title, setTitle] = useState(initial.title);
   const [description, setDescription] = useState(initial.description);
-  const [opensAtIso, setOpensAtIso] = useState(initial.opensAt);
-  const [closesAtIso, setClosesAtIso] = useState(initial.closesAt);
-  const timezone = useSyncExternalStore(
-    subscribeToTimezone,
-    getBrowserTimezone,
-    getServerTimezone,
-  );
-  const opensAt = opensAtIso ? utcInstantToLocalInput(opensAtIso, timezone) ?? "" : "";
-  const closesAt = closesAtIso ? utcInstantToLocalInput(closesAtIso, timezone) ?? "" : "";
+  const [opensAt, setOpensAt] = useState(initial.opensAt);
+  const [closesAt, setClosesAt] = useState(initial.closesAt);
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
-  const [pickType, setPickType] = useState<"single" | "top_n">(initial.pickType);
-  const [maxPicks, setMaxPicks] = useState(initial.maxPicks);
   const [passcode, setPasscode] = useState("");
-  const [options, setOptions] = useState<WizardOptionState[]>(() =>
-    initial.options.length > 0
-      ? initial.options.map((o) => ({ ...blankOption(), ...o }))
-      : [blankOption(), blankOption()],
+  const [hasPasscode, setHasPasscode] = useState(initial.hasPasscode);
+  const [coverKind, setCoverKind] = useState<QuizCoverKind>(initial.coverKind);
+  const [coverRef, setCoverRef] = useState<string | null>(initial.coverRef);
+  const [coverMeta, setCoverMeta] = useState<QuizCoverMeta | null>(initial.coverMeta);
+  const [questions, setQuestions] = useState<QuizQuestionState[]>(() =>
+    initial.questions.length ? initial.questions.map(toQuestionState) : [blankQuestion()],
   );
+  const [dirty, setDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [saveNote, setSaveNote] = useState("Draft changes save automatically.");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [savedNote, setSavedNote] = useState<string | null>(null);
-  const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
   const formErrorRef = useRef<HTMLDivElement>(null);
+  const saveDraftRef = useRef<((manual?: boolean) => Promise<void>) | null>(null);
 
-  function syncUrl(nextStep: number, id: string | null) {
-    const params = new URLSearchParams();
-    if (id) params.set("draft", id);
-    if (nextStep > 1) params.set("step", String(nextStep));
-    const query = params.toString();
-    router.replace(query ? `/events/new?${query}` : "/events/new", {
-      scroll: false,
-    });
-  }
-
-  function goStep(next: 1 | 2 | 3) {
-    setDirection(next >= step ? 1 : -1);
-    setStep(next);
+  function markDirty() {
+    revisionRef.current += 1;
+    blockedAutoSaveRef.current = false;
+    setDirty(true);
+    setErrors({});
+    setSaveNote("Unsaved changes");
     setFormError(null);
-    syncUrl(next, eventId);
   }
 
-  function focusFirst(nextErrors: Record<string, string>) {
-    const order = [
-      "f-title",
-      "f-opensAt",
-      "f-closesAt",
-      "f-passcode",
-      "f-maxPicks",
-      ...options.flatMap((o) => [
-        `opt-${o.key}-label`,
-        `opt-${o.key}-description`,
-        `opt-${o.key}-image`,
-      ]),
-    ];
-    for (const [key] of Object.entries(nextErrors)) {
-      const elId =
-        key === "options"
-          ? `opt-${options[0]?.key ?? "none"}-label`
-          : key.startsWith("option-")
-            ? null
-            : key === "title"
-              ? "f-title"
-              : key === "opensAt"
-                ? "f-opensAt"
-                : key === "closesAt"
-                  ? "f-closesAt"
-              : key === "passcode"
-                ? "f-passcode"
-                : key === "maxPicks"
-                  ? "f-maxPicks"
-                : null;
-      const target = elId ?? order.find((id) => id.startsWith("opt-"));
-      const el = target ? document.getElementById(target) : null;
-      if (el) {
-        el.focus();
-        return;
-      }
-    }
-    if (formErrorRef.current) formErrorRef.current.focus();
-  }
-
-  function validateStep1() {
-    const next: Record<string, string> = {};
-    if (title.trim().length === 0) next.title = "Give your poll a title.";
-    else if (title.trim().length > 160)
-      next.title = "Keep titles to 160 characters or fewer.";
-    const open = opensAt.trim() === "" ? null : new Date(opensAt);
-    const close = closesAt.trim() === "" ? null : new Date(closesAt);
-    if (!open || Number.isNaN(open.getTime())) next.opensAt = "Choose when voting opens.";
-    if (!close || Number.isNaN(close.getTime()))
-      next.closesAt = "Choose when voting closes.";
-    if (open && close && close <= open)
-      next.closesAt = "Closing time must be after opening time.";
-    if (visibility === "passcode" && passcode.length < 4)
-      next.passcode = "Set a passcode of at least 4 characters.";
-    if (pickType === "single" && maxPicks !== 1)
-      next.maxPicks = "Single-choice polls allow exactly one pick.";
-    if (pickType === "top_n" && (maxPicks < 2 || maxPicks > 8))
-      next.maxPicks = "Choose between 2 and 8 ranked picks.";
-    return next;
-  }
-
-  function validateStep2() {
-    const next: Record<string, string> = {};
-    const kept = options.filter(
-      (o) =>
-        o.label.trim() !== "" ||
-        o.description.trim() !== "" ||
-        o.imageUrl.trim() !== "",
-    );
-    const labeled = kept.filter((option) => option.label.trim() !== "");
-    if (labeled.length < 2) next.options = "Add at least two labeled options before continuing.";
-    if (options.length > 8) next.options = "A poll can have at most eight options.";
-    kept.forEach((option) => {
-      if (!option.label.trim()) {
-        next[`opt-${option.key}-label`] = "Add a label or clear this option row.";
-      }
-    });
-    if (pickType === "top_n") {
-      if (maxPicks < 2 || maxPicks > 8)
-        next.maxPicks = "Choose between 2 and 8 ranked picks.";
-      else if (maxPicks > labeled.length)
-        next.maxPicks = "The rank limit can’t exceed the number of labeled options.";
-    }
-    options.forEach((o) => {
-      if (o.label.trim().length > 120)
-        next[`opt-${o.key}-label`] = "Keep labels to 120 characters or fewer.";
-      if (o.description.trim().length > 1000)
-        next[`opt-${o.key}-description`] =
-          "Keep descriptions to 1000 characters or fewer.";
-      if (o.showImage && o.imageMode === "link" && o.linkDraft.trim() !== "") {
-        if (!validHttpUrl(o.linkDraft))
-          next[`opt-${o.key}-image`] = "Paste a valid http(s) image URL.";
-      }
-    });
-    return next;
-  }
-
-  function handleNext() {
-    const next = step === 1 ? validateStep1() : validateStep2();
-    setErrors(next);
-    if (Object.keys(next).length > 0) {
-      focusFirst(next);
-      return;
-    }
-    goStep(step === 3 ? 3 : ((step + 1) as 1 | 2 | 3));
-  }
-
-  async function handleSaveDraft() {
-    setSavingDraft(true);
-    setFormError(null);
-    setSavedNote(null);
-    const result = await saveEvent({
-      eventId,
-      saveAs: "draft",
-      draftStep: step,
+  const buildInput = useCallback((
+    saveAs: SaveQuizInput["saveAs"],
+    expectedVersion: number | null,
+  ): SaveQuizInput => {
+    return {
+      eventId: eventIdRef.current,
+      expectedDraftVersion: expectedVersion,
+      saveAs,
+      draftStep: 1,
       title,
       description,
-      opensAt: opensAtIso,
-      closesAt: closesAtIso,
+      opensAt,
+      closesAt,
       visibility,
       passcode,
-      pickType,
-      maxPicks,
-      options: options.map(toInput),
-    });
-    setSavingDraft(false);
-    if (result.ok) {
-      setEventId(result.eventId);
-      syncUrl(step, result.eventId);
-      const time = new Intl.DateTimeFormat("en-US", {
-        timeStyle: "short",
-      }).format(new Date());
-      setSavedNote(`Draft saved · ${time}`);
-    } else {
-      setErrors(result.errors);
-      setFormError(result.formError);
-      if (result.formError && formErrorRef.current) formErrorRef.current.focus();
-      else focusFirst(result.errors);
-    }
-  }
+      coverKind,
+      coverRef,
+      coverMeta,
+      questions: toSaveQuestions(questions),
+    };
+  }, [title, description, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions]);
 
-  async function handlePublish() {
-    const stepErrors = { ...validateStep1(), ...validateStep2() };
-    setErrors(stepErrors);
-    if (Object.keys(stepErrors).length > 0) {
-      focusFirst(stepErrors);
+  const saveDraft = useCallback(async (manual = false) => {
+    if (publishingRef.current || blockedAutoSaveRef.current && !manual) return;
+    if (savingRef.current) {
+      queuedSaveRef.current = true;
       return;
     }
+
+    savingRef.current = true;
+    setIsSaving(true);
+    const saveRevision = revisionRef.current;
+    try {
+      const result = await saveQuiz(buildInput("draft", eventIdRef.current ? draftVersionRef.current : null));
+      if (result.ok) {
+        eventIdRef.current = result.eventId;
+        draftVersionRef.current = result.draftVersion;
+        setEventId(result.eventId);
+        setDraftVersion(result.draftVersion);
+        setHasPasscode(result.hasPasscode);
+        if (!initial.eventId && !eventIdRef.current) {
+          router.replace(`/events/new?draft=${result.eventId}`, { scroll: false });
+        }
+        if (saveRevision === revisionRef.current) {
+          setDirty(false);
+          setSaveNote(`Saved at ${formatSavedAt()}`);
+        } else {
+          queuedSaveRef.current = true;
+        }
+        setErrors({});
+        setFormError(null);
+      } else {
+        setErrors(result.errors);
+        setFormError(result.formError);
+        setSaveNote("Draft not saved");
+        blockedAutoSaveRef.current = true;
+        if (result.formError) formErrorRef.current?.focus();
+      }
+    } catch {
+      setSaveNote("Draft save failed");
+      setFormError("Couldn’t save this draft. Your changes are still here; try saving again.");
+      blockedAutoSaveRef.current = true;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+      if (queuedSaveRef.current && !publishingRef.current) {
+        queuedSaveRef.current = false;
+        window.setTimeout(() => void saveDraftRef.current?.(false), 0);
+      }
+    }
+  }, [buildInput, initial.eventId, router]);
+
+  useEffect(() => {
+    saveDraftRef.current = saveDraft;
+  }, [saveDraft]);
+
+  useEffect(() => {
+    if (!dirty || publishing || blockedAutoSaveRef.current) return;
+    const timeout = window.setTimeout(() => void saveDraftRef.current?.(false), 850);
+    return () => window.clearTimeout(timeout);
+  }, [dirty, title, description, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions, publishing]);
+
+  function updateTitle(value: string) {
+    markDirty();
+    setTitle(value);
+  }
+  function updateDescription(value: string) {
+    markDirty();
+    setDescription(value);
+  }
+  function updateOpensAt(value: string) {
+    markDirty();
+    setOpensAt(value);
+  }
+  function updateClosesAt(value: string) {
+    markDirty();
+    setClosesAt(value);
+  }
+  function updateVisibility(value: string) {
+    if (value !== "unlisted" && value !== "discoverable" && value !== "passcode") return;
+    markDirty();
+    setVisibility(value);
+    if (value !== "passcode") setHasPasscode(false);
+  }
+  function updatePasscode(value: string) {
+    markDirty();
+    setPasscode(value);
+    if (value.length >= 4) setHasPasscode(true);
+  }
+  function updateCover(cover: { kind: QuizCoverKind; ref: string | null; meta: QuizCoverMeta | null }) {
+    markDirty();
+    setCoverKind(cover.kind);
+    setCoverRef(cover.ref);
+    setCoverMeta(cover.meta);
+  }
+  function updateQuestions(next: QuizQuestionState[]) {
+    markDirty();
+    setQuestions(next);
+  }
+
+  async function publishQuiz() {
+    if (savingRef.current) {
+      setFormError("Your latest draft is still saving. Wait a moment, then publish.");
+      return;
+    }
+    const nextErrors: Record<string, string> = {};
+    if (!title.trim()) nextErrors.title = "Give your quiz a title.";
+    if (title.trim().length > 160) nextErrors.title = "Keep titles to 160 characters or fewer.";
+    const opens = parseUtcInstant(opensAt);
+    const closes = parseUtcInstant(closesAt);
+    if (!opens) nextErrors.opensAt = "Choose when voting opens.";
+    if (!closes) nextErrors.closesAt = "Choose when voting closes.";
+    if (opens && closes && closes <= opens) nextErrors.closesAt = "Closing time must be after opening time.";
+    if (visibility === "passcode" && passcode.length < 4 && !hasPasscode) {
+      nextErrors.passcode = "Set a passcode of at least 4 characters.";
+    }
+    const questionValidation = validateQuizQuestions(toSaveQuestions(questions), true);
+    Object.assign(nextErrors, questionValidation.errors);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setFormError("Review the highlighted quiz fields before publishing.");
+      formErrorRef.current?.focus();
+      return;
+    }
+
+    publishingRef.current = true;
     setPublishing(true);
     setFormError(null);
-    const result = await saveEvent({
-      eventId,
-      saveAs: "publish",
-      draftStep: 3,
-      title,
-      description,
-      opensAt: opensAtIso,
-      closesAt: closesAtIso,
-      visibility,
-      passcode,
-      pickType,
-      maxPicks,
-      options: options.map(toInput),
-    });
-    setPublishing(false);
-    if (result.ok) {
-      router.push(`/events/${result.eventId}`);
-    } else {
+    try {
+      const result = await saveQuiz(buildInput("publish", eventIdRef.current ? draftVersionRef.current : null));
+      if (result.ok) {
+        eventIdRef.current = result.eventId;
+        draftVersionRef.current = result.draftVersion;
+        setEventId(result.eventId);
+        setDraftVersion(result.draftVersion);
+        router.push(`/events/${result.eventId}`);
+        return;
+      }
       setErrors(result.errors);
-      setFormError(
-        result.formError ??
-          "Couldn’t publish — fix the highlighted fields and try again.",
-      );
-      if (formErrorRef.current) formErrorRef.current.focus();
+      setFormError(result.formError ?? "Couldn’t publish. Review the highlighted quiz fields.");
+      formErrorRef.current?.focus();
+    } catch {
+      setFormError("Couldn’t publish this quiz. Your answers are still here; try again.");
+      formErrorRef.current?.focus();
+    } finally {
+      publishingRef.current = false;
+      setPublishing(false);
     }
   }
-
-  function updateOption(key: string, patch: Partial<WizardOptionState>) {
-    setOptions((prev) => prev.map((o) => (o.key === key ? { ...o, ...patch } : o)));
-  }
-
-  function addOption() {
-    if (options.length >= 8) return;
-    setOptions((prev) => [...prev, blankOption()]);
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next.options;
-      return next;
-    });
-  }
-
-  function removeOption(key: string) {
-    const target = options.find((o) => o.key === key);
-    if (!target) return;
-    const hasContent =
-      target.label.trim() !== "" ||
-      target.description.trim() !== "" ||
-      target.imageUrl.trim() !== "";
-    if (hasContent && confirmRemoveKey !== key) {
-      setConfirmRemoveKey(key);
-      return;
-    }
-    setConfirmRemoveKey(null);
-    setOptions((prev) => {
-      const next = prev.filter((o) => o.key !== key);
-      return next.length === 0 ? [blankOption()] : next;
-    });
-  }
-
-  async function handleFile(key: string, file: File | undefined) {
-    if (!file) return;
-    updateOption(key, { uploading: true, imageError: null });
-    const formData = new FormData();
-    formData.set("file", file);
-    const result = await uploadOptionImage(formData);
-    if (result.ok) {
-      updateOption(key, {
-        uploading: false,
-        imageUrl: result.url,
-        imageBlobKey: result.key,
-        imageMode: "upload",
-      });
-    } else {
-      updateOption(key, { uploading: false, imageError: result.error });
-    }
-  }
-
-  function attachLink(key: string) {
-    const target = options.find((o) => o.key === key);
-    if (!target) return;
-    if (!validHttpUrl(target.linkDraft)) {
-      setErrors((prev) => ({
-        ...prev,
-        [`opt-${key}-image`]: "Paste a valid http(s) image URL.",
-      }));
-      document.getElementById(`opt-${key}-image`)?.focus();
-      return;
-    }
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next[`opt-${key}-image`];
-      return next;
-    });
-    updateOption(key, {
-      imageUrl: target.linkDraft.trim(),
-      imageBlobKey: "",
-      imageMode: "link",
-    });
-  }
-
-  const totalLabeled = options.filter((o) => o.label.trim() !== "").length;
 
   return (
-    <div>
-      {process.env.NODE_ENV !== "production" ? (
-        <div
-          data-testid="dev-wizard-switcher"
-          className="mb-6 rounded-md border border-border bg-surface-1 p-3"
-        >
-          <p className="text-xs font-medium uppercase text-subtle-foreground">
-            Dev step jumper
-          </p>
-          <div className="mt-2 flex gap-2">
-            {([1, 2, 3] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={step === s}
-                onClick={() => goStep(s)}
-                className={cn(
-                  "rounded-sm border px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                  step === s
-                    ? "border-accent bg-accent-hover text-accent-foreground"
-                    : "border-border text-muted-foreground hover:border-accent hover:text-accent",
-                )}
-              >
-                Step {s}
-              </button>
-            ))}
-          </div>
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Google Forms-style quiz builder</p>
+          <h1 className="mt-1 text-balance text-3xl font-bold">
+            {eventId ? "Edit quiz draft" : "Create a quiz"}
+          </h1>
         </div>
-      ) : null}
-
-      <ol className="flex items-center gap-2" aria-label="Creation progress">
-        {STEP_LABELS.map((label, i) => {
-          const n = (i + 1) as 1 | 2 | 3;
-          const done = n < step;
-          const current = n === step;
-          return (
-            <li key={label} className="flex flex-1 items-center gap-2 last:flex-none">
-              {done ? (
-                <button
-                  type="button"
-                  onClick={() => goStep(n)}
-                  aria-label={`${label}, completed — go back`}
-                  className="grid size-7 place-items-center rounded-full bg-accent text-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  <AnimatePresence initial={false}>
-                    <motion.span
-                      key={`check-${n}`}
-                      aria-hidden="true"
-                      className="text-xs font-bold"
-                      initial={{ opacity: 0, scale: 0.6 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: dur(0.12), ease: "easeOut" }}
-                    >
-                      ✓
-                    </motion.span>
-                  </AnimatePresence>
-                </button>
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "grid size-7 place-items-center rounded-full font-mono text-xs font-bold tabular-nums",
-                    current
-                      ? "border border-accent text-accent"
-                      : "border border-border text-subtle-foreground",
-                  )}
-                >
-                  {n}
-                </span>
-              )}
-              <span
-                className={cn(
-                  "hidden text-sm font-medium sm:block",
-                  current ? "text-foreground" : "text-muted-foreground",
-                )}
-                aria-current={current ? "step" : undefined}
-              >
-                {label}
-              </span>
-              {i < STEP_LABELS.length - 1 ? (
-                <span aria-hidden="true" className="h-px flex-1 bg-border" />
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
+        <div className="flex items-center gap-3">
+          <p aria-live="polite" className="text-xs text-muted-foreground">
+            {isSaving ? "Saving draft…" : saveNote}
+          </p>
+          <Link href="/events/drafts" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            My drafts
+          </Link>
+        </div>
+      </header>
 
       {formError ? (
-        <div
-          ref={formErrorRef}
-          tabIndex={-1}
-          role="alert"
-          className="mt-5 rounded-md border border-accent bg-surface-1 p-4 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
+        <div ref={formErrorRef} tabIndex={-1} role="alert" className="rounded-lg border border-accent bg-surface-1 p-4 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           {formError}
         </div>
       ) : null}
 
-      {savedNote ? (
-        <p aria-live="polite" className="mt-4 font-mono text-sm tabular-nums text-muted-foreground">
-          {savedNote}
-        </p>
-      ) : null}
-
-      <AnimatePresence mode="wait" custom={direction} initial={false}>
-        <motion.section
-          key={step}
-          custom={direction}
-          initial={{ opacity: 0, x: direction === 1 ? 16 : -16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: direction === 1 ? -12 : 12 }}
-          transition={{ duration: dur(0.16), ease: "easeOut" }}
-          aria-label={`Step ${step}: ${STEP_LABELS[step - 1]}`}
-          className="mt-6 rounded-xl border border-border bg-surface-1 p-5 sm:p-6"
-        >
-          {step === 1 ? (
-            <div className="space-y-5">
-              <div>
-                <label htmlFor="f-title" className={labelClass}>
-                  Title
-                </label>
-                <input
-                  id="f-title"
-                  name="title"
-                  type="text"
-                  value={title}
-                  maxLength={161}
-                  placeholder="Who takes the AFC North?"
-                  onChange={(e) => setTitle(e.target.value)}
-                  aria-invalid={Boolean(errors.title)}
-                  aria-describedby={errors.title ? "f-title-error" : undefined}
-                  className={inputClass}
-                />
-                <FieldError id="f-title-error" message={errors.title} />
-              </div>
-
-              <div>
-                <label htmlFor="f-description" className={labelClass}>
-                  Description <span className="font-normal text-muted-foreground">(optional)</span>
-                </label>
-                <textarea
-                  id="f-description"
-                  name="description"
-                  value={description}
-                  rows={3}
-                  placeholder="What are voters deciding, and what should they know?"
-                  onChange={(e) => setDescription(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <span id="pick-type-label" className={labelClass}>
-                  Pick format
-                </span>
-                <div
-                  role="group"
-                  aria-labelledby="pick-type-label"
-                  className="grid gap-2 sm:grid-cols-2"
-                >
-                  {([
-                    {
-                      id: "single",
-                      label: "Single choice",
-                      hint: "Choose one option.",
-                    },
-                    {
-                      id: "top_n",
-                      label: "Top picks",
-                      hint: "Order your picks by tapping them.",
-                    },
-                  ] as const).map((choice) => (
-                    <button
-                      key={choice.id}
-                      type="button"
-                      aria-pressed={pickType === choice.id}
-                      onClick={() => {
-                        setPickType(choice.id);
-                        setMaxPicks(choice.id === "single" ? 1 : Math.max(2, maxPicks));
-                      }}
-                      className={cn(
-                        "rounded-md border px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        pickType === choice.id
-                          ? "border-accent bg-surface-2"
-                          : "border-border bg-surface-1 hover:border-accent",
-                      )}
-                    >
-                      <span className="block text-sm font-bold text-foreground">
-                        {choice.label}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {choice.hint}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <DateTimePicker
-                    id="f-opensAt"
-                    label="Voting opens"
-                    kind="opens"
-                    value={opensAtIso}
-                    onChange={setOpensAtIso}
-                    error={errors.opensAt}
-                    errorId="f-opensAt-error"
-                  />
-                  <FieldError id="f-opensAt-error" message={errors.opensAt} />
-                </div>
-                <div>
-                  <DateTimePicker
-                    id="f-closesAt"
-                    label="Voting closes"
-                    kind="closes"
-                    value={closesAtIso}
-                    onChange={setClosesAtIso}
-                    referenceInstant={opensAtIso}
-                    error={errors.closesAt}
-                    errorId="f-closesAt-error"
-                  />
-                  <FieldError id="f-closesAt-error" message={errors.closesAt} />
-                </div>
-              </div>
-
-              <div>
-                <span id="visibility-label" className={labelClass}>
-                  Visibility
-                </span>
-                <div
-                  role="group"
-                  aria-labelledby="visibility-label"
-                  className="grid grid-cols-3 gap-2"
-                >
-                  {(
-                    [
-                      { id: "unlisted", label: "Unlisted", hint: "Link only" },
-                      { id: "discoverable", label: "Discover", hint: "Public feed" },
-                      { id: "passcode", label: "Passcode", hint: "Code-gated" },
-                    ] as const
-                  ).map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      aria-pressed={visibility === v.id}
-                      onClick={() => setVisibility(v.id)}
-                      className={cn(
-                        "rounded-md border px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        visibility === v.id
-                          ? "border-accent bg-surface-2"
-                          : "border-border bg-surface-1 hover:border-accent",
-                      )}
-                    >
-                      <span className="block text-sm font-bold text-foreground">
-                        {v.label}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">{v.hint}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <AnimatePresence initial={false}>
-                {visibility === "passcode" ? (
-                  <motion.div
-                    key="passcode-field"
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: dur(0.16), ease: "easeOut" }}
-                  >
-                    <label htmlFor="f-passcode" className={labelClass}>
-                      Shared passcode
-                    </label>
-                    <input
-                      id="f-passcode"
-                      name="passcode"
-                      type="password"
-                      value={passcode}
-                      autoComplete="off"
-                      placeholder="Share this with your voters"
-                      onChange={(e) => setPasscode(e.target.value)}
-                      aria-invalid={Boolean(errors.passcode)}
-                      aria-describedby={
-                        errors.passcode ? "f-passcode-error" : "f-passcode-hint"
-                      }
-                      className={cn(inputClass, "max-w-xs font-mono")}
-                    />
-                    <p id="f-passcode-hint" className="mt-1 text-xs text-muted-foreground">
-                      Voters enter this once per browser to unlock the poll. It’s stored
-                      hashed, never as plaintext.
-                    </p>
-                    <FieldError id="f-passcode-error" message={errors.passcode} />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
-          ) : null}
-
-          {step === 2 ? (
+      <section aria-labelledby="quiz-basics-title" className="space-y-5 rounded-xl border border-border bg-surface-1 p-4 sm:p-6">
+        <QuizCoverPicker
+          value={{ kind: coverKind, ref: coverRef, meta: coverMeta }}
+          onChange={updateCover}
+        />
+        <div className="border-t border-border pt-5">
+          <h2 id="quiz-basics-title" className="text-balance text-xl font-bold">Quiz details</h2>
+          <div className="mt-4 space-y-4">
+            <InputGroup className="font-fluid w-full max-w-none">
+              <InputField
+                id="f-title"
+                name="title"
+                label="Quiz title"
+                index={0}
+                value={title}
+                onChange={updateTitle}
+                maxLength={160}
+                placeholder="What will your group answer?"
+                error={errors.title}
+              />
+            </InputGroup>
             <div>
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="text-balance text-xl font-bold">Options</h2>
-                <p className="font-mono text-sm tabular-nums text-muted-foreground">
-                  {totalLabeled} of {options.length} labeled · min 2, max 8
-                </p>
-              </div>
-
-              {errors.options ? (
-                <p role="alert" className="mt-2 text-sm text-accent">
-                  {errors.options}
-                </p>
-              ) : null}
-
-              {pickType === "top_n" ? (
-                <div className="mt-4 max-w-xs">
-                  <label htmlFor="f-maxPicks" className={labelClass}>
-                    Maximum ranks
-                  </label>
-                  <select
-                    id="f-maxPicks"
-                    name="maxPicks"
-                    value={maxPicks}
-                    onChange={(e) => setMaxPicks(Number(e.target.value))}
-                    aria-invalid={Boolean(errors.maxPicks)}
-                    aria-describedby={errors.maxPicks ? "f-maxPicks-error" : undefined}
-                    className={cn(inputClass, "font-mono tabular-nums")}
-                  >
-                    {Array.from({ length: 7 }, (_, index) => index + 2).map((count) => (
-                      <option key={count} value={count}>
-                        Rank up to {count} options
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Voters may rank fewer than this, but at least one.
-                  </p>
-                  <FieldError id="f-maxPicks-error" message={errors.maxPicks} />
-                </div>
-              ) : null}
-
-              <ul className="mt-4 space-y-3">
-                <AnimatePresence initial={false} mode="popLayout">
-                  {options.map((o, index) => (
-                    <motion.li
-                      key={o.key}
-                      layout={false}
-                      initial={{ opacity: 0, y: -8, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      transition={{ duration: dur(0.16), ease: "easeOut" }}
-                      className="rounded-lg border border-border bg-surface-2 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-mono text-xs tabular-nums text-subtle-foreground">
-                          Option {index + 1}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => removeOption(o.key)}
-                          className={cn(
-                            "rounded-sm px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                            confirmRemoveKey === o.key
-                              ? "bg-accent-hover text-accent-foreground"
-                              : "text-muted-foreground hover:text-accent",
-                          )}
-                        >
-                          {confirmRemoveKey === o.key ? "Confirm remove?" : "Remove"}
-                        </button>
-                      </div>
-
-                      <div className="mt-2">
-                        <label htmlFor={`opt-${o.key}-label`} className={labelClass}>
-                          Label
-                        </label>
-                        <input
-                          id={`opt-${o.key}-label`}
-                          type="text"
-                          value={o.label}
-                          maxLength={121}
-                          placeholder="Team or choice name"
-                          onChange={(e) => updateOption(o.key, { label: e.target.value })}
-                          aria-invalid={Boolean(errors[`opt-${o.key}-label`])}
-                          className={cn(inputClass, "bg-surface-1")}
-                        />
-                        <FieldError
-                          id={`opt-${o.key}-label-error`}
-                          message={errors[`opt-${o.key}-label`]}
-                        />
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          aria-expanded={o.showDetails}
-                          onClick={() =>
-                            updateOption(o.key, { showDetails: !o.showDetails })
-                          }
-                          className="rounded-sm border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                        >
-                          {o.showDetails ? "Hide description" : "Add description"}
-                        </button>
-                        <button
-                          type="button"
-                          aria-expanded={o.showImage}
-                          onClick={() => updateOption(o.key, { showImage: !o.showImage })}
-                          className="rounded-sm border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                        >
-                          {o.showImage ? "Hide image" : "Add image"}
-                        </button>
-                      </div>
-
-                      <AnimatePresence initial={false}>
-                        {o.showDetails ? (
-                          <motion.div
-                            key={`details-${o.key}`}
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: dur(0.16), ease: "easeOut" }}
-                            className="mt-3"
-                          >
-                            <label htmlFor={`opt-${o.key}-description`} className={labelClass}>
-                              Description <span className="font-normal text-muted-foreground">(optional)</span>
-                            </label>
-                            <textarea
-                              id={`opt-${o.key}-description`}
-                              value={o.description}
-                              rows={2}
-                              onChange={(e) =>
-                                updateOption(o.key, { description: e.target.value })
-                              }
-                              className={cn(inputClass, "bg-surface-1")}
-                            />
-                            <FieldError
-                              id={`opt-${o.key}-description-error`}
-                              message={errors[`opt-${o.key}-description`]}
-                            />
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-
-                      <AnimatePresence initial={false}>
-                        {o.showImage ? (
-                          <motion.div
-                            key={`image-${o.key}`}
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: dur(0.16), ease: "easeOut" }}
-                            className="mt-3"
-                          >
-                            <div
-                              role="group"
-                              aria-label={`Image source for option ${index + 1}`}
-                              className="grid grid-cols-2 gap-2"
-                            >
-                              {(["upload", "link"] as const).map((m) => (
-                                <button
-                                  key={m}
-                                  type="button"
-                                  aria-pressed={o.imageMode === m}
-                                  onClick={() => updateOption(o.key, { imageMode: m })}
-                                  className={cn(
-                                    "rounded-md border px-3 py-1.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                                    o.imageMode === m
-                                      ? "border-accent text-accent"
-                                      : "border-border text-muted-foreground hover:border-accent",
-                                  )}
-                                >
-                                  {m === "upload" ? "Upload" : "Paste URL"}
-                                </button>
-                              ))}
-                            </div>
-
-                            {o.imageMode === "upload" ? (
-                              <div className="mt-2">
-                                <label
-                                  htmlFor={`opt-${o.key}-file`}
-                                  className="inline-block rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                                >
-                                  {o.uploading ? "Uploading…" : "Choose image"}
-                                </label>
-                                <input
-                                  id={`opt-${o.key}-file`}
-                                  type="file"
-                                  accept="image/*"
-                                  className="sr-only"
-                                  disabled={o.uploading}
-                                  onChange={(e) => {
-                                    void handleFile(o.key, e.target.files?.[0]);
-                                    e.target.value = "";
-                                  }}
-                                />
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  PNG or JPG, under 4 MB.
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="mt-2 flex gap-2">
-                                <input
-                                  id={`opt-${o.key}-image`}
-                                  type="url"
-                                  inputMode="url"
-                                  value={o.linkDraft}
-                                  placeholder="https://…"
-                                  onChange={(e) =>
-                                    updateOption(o.key, { linkDraft: e.target.value })
-                                  }
-                                  aria-invalid={Boolean(errors[`opt-${o.key}-image`])}
-                                  className={cn(inputClass, "bg-surface-1 font-mono")}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => attachLink(o.key)}
-                                  className="shrink-0 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                                >
-                                  Attach
-                                </button>
-                              </div>
-                            )}
-
-                            {o.imageError ? (
-                              <p role="alert" className="mt-1 text-sm text-accent">
-                                {o.imageError}
-                              </p>
-                            ) : null}
-                            <FieldError
-                              id={`opt-${o.key}-image-error`}
-                              message={errors[`opt-${o.key}-image`]}
-                            />
-
-                            {o.imageUrl.trim() !== "" ? (
-                              <div className="mt-2 flex items-center gap-3">
-                                <Image
-                                  src={o.imageUrl}
-                                  alt={o.imageAlt.trim() === "" ? `${o.label.trim() === "" ? "Option" : o.label.trim()} image preview` : o.imageAlt}
-                                  width={48}
-                                  height={48}
-                                  unoptimized
-                                  className="size-12 rounded-md border border-border"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <label htmlFor={`opt-${o.key}-alt`} className={labelClass}>
-                                    Alt text <span className="font-normal text-muted-foreground">(optional)</span>
-                                  </label>
-                                  <input
-                                    id={`opt-${o.key}-alt`}
-                                    type="text"
-                                    value={o.imageAlt}
-                                    placeholder="Describe the image"
-                                    onChange={(e) =>
-                                      updateOption(o.key, { imageAlt: e.target.value })
-                                    }
-                                    className={cn(inputClass, "bg-surface-1")}
-                                  />
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateOption(o.key, {
-                                      imageUrl: "",
-                                      imageBlobKey: "",
-                                      linkDraft: "",
-                                    })
-                                  }
-                                  className="shrink-0 self-end rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : null}
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-                    </motion.li>
-                  ))}
-                </AnimatePresence>
-              </ul>
-
-              <button
-                type="button"
-                onClick={addOption}
-                disabled={options.length >= 8}
-                className={cn(
-                  "mt-3 w-full rounded-lg border border-dashed px-4 py-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                  options.length >= 8
-                    ? "border-border text-subtle-foreground"
-                    : "border-border text-muted-foreground hover:border-accent hover:text-accent",
-                )}
-              >
-                {options.length >= 8 ? "Maximum of 8 options reached" : "Add option"}
-              </button>
+              <label htmlFor="f-description" className="mb-1 block text-sm font-medium">
+                Description <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <textarea
+                id="f-description"
+                value={description}
+                rows={2}
+                maxLength={2000}
+                onChange={(event) => updateDescription(event.target.value)}
+                placeholder="Add context for your group"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              />
             </div>
-          ) : null}
-
-          {step === 3 ? (
-            <div>
-              <h2 className="text-balance text-xl font-bold">Review</h2>
-              <p className="mt-1 text-pretty text-sm leading-5 text-muted-foreground">
-                This is exactly what voters will see. Publishing makes the poll live
-                on its schedule — drafts stay private until then.
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <DateTimePicker
+                  id="f-opensAt"
+                  label="Voting opens"
+                  kind="opens"
+                  value={opensAt}
+                  onChange={updateOpensAt}
+                  error={errors.opensAt}
+                  errorId="f-opensAt-error"
+                />
+                {errors.opensAt ? <p id="f-opensAt-error" role="alert" className="mt-1 text-sm text-accent">{errors.opensAt}</p> : null}
+              </div>
+              <div>
+                <DateTimePicker
+                  id="f-closesAt"
+                  label="Voting closes"
+                  kind="closes"
+                  value={closesAt}
+                  referenceInstant={opensAt}
+                  onChange={updateClosesAt}
+                  error={errors.closesAt}
+                  errorId="f-closesAt-error"
+                />
+                {errors.closesAt ? <p id="f-closesAt-error" role="alert" className="mt-1 text-sm text-accent">{errors.closesAt}</p> : null}
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="quiz-visibility" className="mb-1 block text-sm font-medium">Visibility</label>
+                <Select value={visibility} onValueChange={updateVisibility}>
+                  <SelectTrigger id="quiz-visibility" className="font-fluid min-h-11 w-full" />
+                  <SelectContent>
+                    <SelectItem index={0} value="unlisted">Unlisted · link only</SelectItem>
+                    <SelectItem index={1} value="discoverable">Discover · public feed</SelectItem>
+                    <SelectItem index={2} value="passcode">Passcode protected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {visibility === "passcode" ? (
+                <InputGroup className="font-fluid w-full max-w-none">
+                  <InputField
+                    id="f-passcode"
+                    name="passcode"
+                    type="password"
+                    label="Shared passcode"
+                    index={0}
+                    value={passcode}
+                    onChange={updatePasscode}
+                    autoComplete="new-password"
+                    placeholder={hasPasscode ? "Leave blank to keep the current passcode" : "At least 4 characters"}
+                    error={errors.passcode}
+                  />
+                </InputGroup>
+              ) : null}
+            </div>
+            {visibility === "passcode" ? (
+              <p className="-mt-3 text-xs text-muted-foreground">
+                Passcodes are stored as a hash and never as plaintext.
               </p>
-              <dl className="mt-4 space-y-3 text-sm">
-                <div>
-                  <dt className="font-medium text-muted-foreground">Title</dt>
-                  <dd className="mt-0.5 font-bold text-foreground">
-                    {title.trim() === "" ? "Untitled poll" : title.trim()}
-                  </dd>
-                </div>
-                {description.trim() !== "" ? (
-                  <div>
-                    <dt className="font-medium text-muted-foreground">Description</dt>
-                    <dd className="mt-0.5 text-pretty text-foreground">{description.trim()}</dd>
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono tabular-nums">
-                  <div>
-                    <dt className="font-sans font-medium text-muted-foreground">Opens</dt>
-                    <dd className="text-foreground">{opensAt === "" ? "—" : opensAt.replace("T", " ")}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-sans font-medium text-muted-foreground">Closes</dt>
-                    <dd className="text-foreground">{closesAt === "" ? "—" : closesAt.replace("T", " ")}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-sans font-medium text-muted-foreground">Visibility</dt>
-                    <dd className="text-foreground">{visibility}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-sans font-medium text-muted-foreground">Pick format</dt>
-                    <dd className="text-foreground">
-                      {pickType === "single" ? "Single choice" : `Top ${maxPicks}`}
-                    </dd>
-                  </div>
-                </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">
-                    Options ({options.filter((o) => o.label.trim() !== "").length})
-                  </dt>
-                  <dd className="mt-1 space-y-2">
-                    {options
-                      .filter((o) => o.label.trim() !== "")
-                      .map((o) => (
-                        <div
-                          key={o.key}
-                          className="flex items-center gap-3 rounded-md border border-border bg-surface-2 p-3"
-                        >
-                          {o.imageUrl.trim() !== "" ? (
-                            <Image
-                              src={o.imageUrl}
-                              alt=""
-                              width={40}
-                              height={40}
-                              unoptimized
-                              className="size-10 shrink-0 rounded-md border border-border"
-                            />
-                          ) : null}
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-foreground">
-                              {o.label.trim()}
-                            </p>
-                            {o.description.trim() !== "" ? (
-                              <p className="line-clamp-1 text-xs text-muted-foreground">
-                                {o.description.trim()}
-                              </p>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          ) : null}
-        </motion.section>
-      </AnimatePresence>
-
-      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-2">
-          {step > 1 ? (
-            <button
-              type="button"
-              onClick={() => goStep((step - 1) as 1 | 2 | 3)}
-              className="rounded-md border border-border bg-surface-1 px-4 py-2 text-sm font-medium text-foreground hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              Back
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void handleSaveDraft()}
-            disabled={savingDraft || publishing}
-            className="rounded-md border border-border bg-surface-1 px-4 py-2 text-sm font-medium text-muted-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
-          >
-            {savingDraft ? "Saving…" : "Save as draft"}
-          </button>
+            ) : null}
+          </div>
         </div>
-        {step < 3 ? (
-          <button
-            type="button"
-            onClick={handleNext}
-            className="rounded-md bg-accent-hover px-5 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            Next
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void handlePublish()}
-            disabled={publishing || savingDraft}
-            className="rounded-md bg-accent-hover px-5 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
-          >
-            {publishing ? "Publishing…" : eventId ? "Publish draft" : "Publish poll"}
-          </button>
-        )}
-      </div>
+      </section>
+
+      <section aria-labelledby="questions-title" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="questions-title" className="text-balance text-2xl font-bold">Questions</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Every question is required. Add 1–20 questions, each with 2–8 options.
+            </p>
+          </div>
+          <Badge size="compact" color="gray">{questions.length} / 20</Badge>
+        </div>
+        <QuestionEditor
+          questions={questions}
+          errors={errors}
+          onChange={updateQuestions}
+        />
+      </section>
+
+      <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="tertiary"
+          disabled={isSaving || publishing}
+          onClick={() => void saveDraftRef.current?.(true)}
+          className="font-fluid min-h-11 px-4"
+        >
+          Save draft
+        </Button>
+        <Button
+          type="button"
+          variant="primary"
+          disabled={isSaving || publishing}
+          onClick={() => void publishQuiz()}
+          className={cn("font-fluid min-h-11 px-5", publishing && "opacity-70")}
+        >
+          {publishing ? "Publishing…" : "Publish quiz"}
+        </Button>
+      </footer>
+      <p className="sr-only" aria-live="polite">
+        Draft version {draftVersion} {dirty ? "has unsaved changes" : "is saved"}.
+      </p>
     </div>
   );
 }
