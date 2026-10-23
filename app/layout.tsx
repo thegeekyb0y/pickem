@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Pickem",
-  description: "Discover quizzes, answer questions, and follow results.",
+  description: "Discover polls, answer questions, and follow results.",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

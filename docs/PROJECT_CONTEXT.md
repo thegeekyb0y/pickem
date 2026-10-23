@@ -20,20 +20,20 @@ Last updated: 2026-10-23.
 
 ## Current repository state
 
-- `origin/main` is `f399cfe Merge pull request #2 from
-  thegeekyb0y/feature/fluid-quiz-builder`. PRs #1 and #2 are merged, so `main`
-  now contains the multi-question builder. Production is expected to track
-  `main`; confirm the Vercel deployment before the smoke test.
-- Local `main` is still `23f0ae3 feat(profile): use Fluid inputs, badges, and
-  buttons`; fast-forward it before branching.
+- `origin/main` is `4d299e0 Merge pull request #4 from
+  thegeekyb0y/fix/draft-save-reliability`. PRs #1–#4 are merged, so `main`
+  contains the multi-question builder and Phase 1 reliability fixes. Production
+  is expected to track `main`; confirm the Vercel deployment before the smoke
+  test.
+- Local `main` and `origin/main` are aligned at `4d299e0`.
 - Local `feature/fluid-quiz-builder` is `cf101c5`, fully contained in
-  `origin/main`. Phase 1 work is on `fix/draft-save-reliability`, branched from
-  `origin/main`.
+  `origin/main`. Phase 2 work is uncommitted on `feat/phase-2-poll-polish`,
+  branched from `origin/main`.
 - Safety branches: `backup/wip-quiz-builder` (`f3abaa6`) and
   `backup/pre-split-37cc032` (`37cc032`)
-- `fix/draft-save-reliability` contains the Phase 1 reliability fixes: the
-  question/option timestamp constraint failure, draft URL sync on first save,
-  the stable autosave status surface, and safer publish/save error copy.
+- Phase 1 reliability fixes, merged as PR #4, cover the question/option
+  timestamp constraint failure, draft URL sync on first save, the stable
+  autosave status surface, and safer publish/save error copy.
 - Migration `drizzle/0006_expand_quiz_questions.sql` is applied to Neon
   production. The legacy model was backfilled into questions, options, and
   ballot answers. Migration `0007` is applied to production and replaces the
@@ -167,6 +167,11 @@ only) has its own migration gate.
   first-save draft URLs sync correctly, autosave failures stop retry loops and
   use a stable status surface, and unknown save/publish errors are logged
   without exposing user content.
+- Phase 2 poll pass: user-facing copy says poll/response instead of quiz/ballot,
+  text fields and selects are visibly editable, the builder is compact, question
+  and option descriptions are removed, the date-picker popover mounts normally,
+  status tabs are compact, and profile settings are cleaned up. Internal
+  identifiers and database column names are unchanged.
 - WIP cover flow: presets, Unsplash search route/cache/credit, client image
   preparation, sharp/WebP upload, cover rendering on cards and quiz pages. The
   next cover pass replaces Unsplash with owner-supplied pattern/preset artwork,
@@ -186,16 +191,19 @@ only) has its own migration gate.
   It is applied to Neon production. The old production trigger function kept an
   `event_id` variable because `0006` was edited after being applied; `0007`
   forwards the corrected `quiz_id` definition without rewriting history.
-- Playwright e2e: 4 tests pass against the local dev server and test database.
+- Phase 2 re-verification: lint, typecheck, 66 unit tests, 16 integration tests,
+  production build, and all 4 Playwright tests pass on
+  `feat/phase-2-poll-polish`. Integration/e2e require
+  `ALLOW_TEST_DB_MUTATION=1`.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
   “closed” mapping, ambiguous PL/pgSQL `event_id` variable in a trigger, a
   Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, and
   an invalid `Intl.DateTimeFormat` option plus locale hydration mismatch.
-- History is split into logical commits and pushed. A draft PR still needs to be
-  created manually because `gh` is unavailable.
-- User-facing owner copy now says quiz; identifiers such as `home:polls` and
-  `poll-options/` remain intentionally unchanged.
+- Phase 1 history is merged; Phase 2 changes are uncommitted on
+  `feat/phase-2-poll-polish` pending review and commit.
+- User-facing copy now says poll/response; identifiers such as `quiz_id`,
+  `saveQuiz`, `home:polls`, and `poll-options/` remain intentionally unchanged.
 - Earlier edits failed with `Unknown: FileSystem.writeFile` on several files,
   including `wizard.tsx`, `actions.ts`, and `profile/page.tsx`. After restart,
   edits succeeded. `actions.ts` currently has no read-only flag, no lock file,
@@ -210,33 +218,28 @@ only) has its own migration gate.
 
 ## Known gaps and next steps
 
-1. **Deploy Phase 1.** Deploy `fix/draft-save-reliability` to a preview,
-   smoke-test create/autosave/reload/publish/vote, then merge. No migration is
-   involved.
-2. **Phase 2: compact poll builder.** Rename user-facing quiz copy to poll, make
-   text fields visibly editable, compact the question/option editor, remove
-   question/option descriptions, fix the date-picker opacity, restore compact
-   status tabs, align select colors, and clean up profile settings.
-3. **Cover redesign.** Replace Unsplash with owner-supplied preset/pattern
+1. **Review and ship Phase 2.** Review the uncommitted poll-builder diff, commit,
+   open a PR, and smoke-test create/autosave/reload/publish/vote on a preview.
+   No migration is involved.
+2. **Cover redesign.** Replace Unsplash with owner-supplied preset/pattern
    artwork and custom uploads, use a compact thumbnail editor, and add cropping
    that persists crop/focal data in `cover_meta`.
-4. **Migration `0008` contract.** Drop legacy `vote_picks`, `votes.option_id` /
+3. **Migration `0008` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
    only after a production create/vote smoke test. Keep it separate from UI work
    and reconcile the missing Drizzle snapshots first.
-5. **Edit published quizzes.** Implement the edit rules, edited marker, cache
+4. **Edit published polls.** Implement the edit rules, edited marker, cache
    invalidation, and immutable question/options after votes with concurrency
    tests.
-6. **Social link.** Separate migration gate for platform + handle constrained to
+5. **Social link.** Separate migration gate for platform + handle constrained to
    HTTPS `instagram.com` / `x.com`.
-7. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
-   retain a tombstone user, and close/unlist open quizzes.
-8. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
+6. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
+   retain a tombstone user, and close/unlist open polls.
+7. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
    preview deployment, and replace ~2-second polling with WebSockets when the
    edge-request cost justifies it. Ranked scoring remains undefined.
-9. **Repository hygiene.** Fast-forward local `main`, delete the merged feature
-   branch after the Phase 1 branch is open, and keep new work off merged
-   branches.
+8. **Repository hygiene.** Delete merged feature branches after their PRs land
+   and keep new work off merged branches.
 
 ## Resume checklist
 

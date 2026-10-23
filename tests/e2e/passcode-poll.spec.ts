@@ -15,7 +15,7 @@ test.beforeAll(() => {
   if (e2eEnabled) assertE2eTargetIsNotProduction();
 });
 
-test("a passcode quiz stays locked until the passcode is entered", async ({ browser, baseURL }) => {
+test("a passcode poll stays locked until the passcode is entered", async ({ browser, baseURL }) => {
   if (!baseURL) return;
   const sql = connectToTestDatabase();
   const fixture = await createPollFixture(sql, { visibility: "passcode", passcode: PASSCODE });
@@ -33,9 +33,9 @@ test("a passcode quiz stays locked until the passcode is entered", async ({ brow
     await page.goto(eventUrl);
     await expect(page.getByRole("heading", { name: "Enter the passcode" })).toBeVisible();
 
-    // A wrong passcode keeps the quiz locked.
+    // A wrong passcode keeps the poll locked.
     await page.getByLabel("Passcode").fill("not-the-passcode");
-    await page.getByRole("button", { name: "Unlock quiz" }).click();
+    await page.getByRole("button", { name: "Unlock poll" }).click();
     await expect(page.getByText(/didn’t match/)).toBeVisible({ timeout: 30_000 });
 
     const stillLocked = await context.request.get(
@@ -43,10 +43,10 @@ test("a passcode quiz stays locked until the passcode is entered", async ({ brow
     );
     expect(stillLocked.status()).toBe(401);
 
-    // The correct passcode unlocks the quiz.
+    // The correct passcode unlocks the poll.
     await page.getByLabel("Passcode").fill(PASSCODE);
-    await page.getByRole("button", { name: "Unlock quiz" }).click();
-    await expect(page.getByRole("heading", { name: /E2E quiz/ })).toBeVisible();
+    await page.getByRole("button", { name: "Unlock poll" }).click();
+    await expect(page.getByRole("heading", { name: /E2E poll/ })).toBeVisible();
 
     const unlocked = await context.request.get(`${baseURL}/api/events/${fixture.eventId}/results`);
     expect(unlocked.status()).toBe(200);

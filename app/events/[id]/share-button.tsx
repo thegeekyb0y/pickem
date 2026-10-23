@@ -26,7 +26,7 @@ export default function ShareButton({ title }: { title: string }) {
     try {
       if (navigator.share) {
         await navigator.share({ title, text: `Answer ${title}`, url });
-        announce("Quiz shared.");
+        announce("Poll shared.");
         return;
       }
 
@@ -45,10 +45,10 @@ export default function ShareButton({ title }: { title: string }) {
       field.select();
       const copied = document.execCommand("copy");
       field.remove();
-      announce(copied ? "Link copied." : "Copy the quiz URL from your address bar.");
+      announce(copied ? "Link copied." : "Copy the poll URL from your address bar.");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      announce("Could not share this quiz. Copy the URL from your address bar.");
+      announce("Could not share this poll. Copy the URL from your address bar.");
     }
   }
 
@@ -61,7 +61,7 @@ export default function ShareButton({ title }: { title: string }) {
         onClick={() => void handleShare()}
         className="font-fluid min-h-11 px-4"
       >
-        Share quiz
+        Share poll
       </Button>
       <p aria-live="polite" className="min-h-4 text-xs text-muted-foreground">
         {message}

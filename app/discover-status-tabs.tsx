@@ -24,17 +24,17 @@ export default function DiscoverStatusTabs({
   }
 
   return (
-    <Tabs value={view} onValueChange={changeView}>
+    <Tabs value={view} onValueChange={changeView} size="compact">
       <TabsList
-        aria-label="Quiz status"
+        aria-label="Poll status"
         className="w-full justify-start rounded-none border-b border-border bg-transparent p-0"
       >
         <TabItem
           value="live"
           label="Live & upcoming"
-          className="min-h-11 px-4"
+          className="min-h-9 px-3"
         />
-        <TabItem value="closed" label="Closed" className="min-h-11 px-4" />
+        <TabItem value="closed" label="Closed" className="min-h-9 px-3" />
       </TabsList>
       <TabPanel value="live" className="mt-6">
         {view === "live" ? children : null}

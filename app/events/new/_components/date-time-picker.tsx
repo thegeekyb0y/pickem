@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -10,7 +9,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { spring } from "@/lib/springs";
 import {
   localInputToUtcIso,
   utcInstantToLocalInput,
@@ -135,7 +133,7 @@ export function DateTimePicker({
               aria-invalid={Boolean(error || localError)}
               aria-describedby={describedBy}
               className={cn(
-                "font-fluid min-h-11 w-full justify-between rounded-md px-3 text-left",
+                "font-fluid min-h-11 w-full justify-between rounded-md bg-background px-3 text-left",
                 !selectedDate && "text-muted-foreground",
                 (error || localError) && "border-accent",
               )}
@@ -146,24 +144,11 @@ export function DateTimePicker({
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            asChild
-            forceMount
             align="start"
             sideOffset={8}
-            className="w-[min(22.5rem,calc(100vw-1rem))] border-0 bg-transparent p-0 shadow-none"
+            className="w-[min(22.5rem,calc(100vw-1rem))] p-3"
           >
-            <motion.div
-              initial={false}
-              animate={open ? "open" : "closed"}
-              variants={{
-                open: { opacity: 1, y: 0, scale: 1 },
-                closed: { opacity: 0, y: 3, scale: 0.98 },
-              }}
-              transition={open ? spring.fast : spring.fast.exit}
-              aria-hidden={!open}
-              inert={!open}
-              className="max-h-[min(80dvh,42rem)] overflow-y-auto rounded-xl border border-border bg-surface-1 p-3 text-foreground shadow-popover"
-            >
+            <div className="max-h-[min(80dvh,42rem)] overflow-y-auto">
               <div role="group" aria-label="Date presets" className="mb-2 flex flex-wrap gap-1.5">
                 {presets.map((preset) => (
                   <Button
@@ -204,7 +189,7 @@ export function DateTimePicker({
                   Done
                 </Button>
               </div>
-            </motion.div>
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -222,7 +207,7 @@ export function DateTimePicker({
             aria-invalid={Boolean(error || localError)}
             aria-describedby={describedBy}
             className={cn(
-              "h-11 w-full min-w-0 rounded-md border border-border bg-surface-1 px-3 text-sm font-mono tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60",
+              "h-11 w-full min-w-0 rounded-md border border-border bg-background px-3 text-sm font-mono tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60",
               (error || localError) && "border-accent",
             )}
           />

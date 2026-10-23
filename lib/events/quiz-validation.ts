@@ -60,7 +60,7 @@ export function validateQuizQuestions(
   const errors: Record<string, string> = {};
   if (!Array.isArray(rawQuestions) || rawQuestions.length < 1 || rawQuestions.length > 20) {
     return {
-      errors: { questions: "A quiz needs between 1 and 20 questions." },
+      errors: { questions: "A poll needs between 1 and 20 questions." },
       questions: [],
     };
   }

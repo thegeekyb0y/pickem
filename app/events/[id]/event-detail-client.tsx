@@ -164,7 +164,7 @@ export default function EventDetailClient({
 
   async function castVote() {
     if (!allQuestionsAnswered) {
-      setError("Answer every question before submitting your ballot.");
+      setError("Answer every question before submitting your answers.");
       const unanswered = questions.find((question) => !(selectedByQuestion[question.id]?.length));
       document.getElementById(`question-${unanswered?.id}`)?.scrollIntoView({
         behavior: reduceMotion ? "auto" : "smooth",
@@ -278,7 +278,7 @@ export default function EventDetailClient({
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tabular-nums">
               <span className="text-foreground" data-testid="ballot-count">
                 <AnimatedNumber value={totalBallots} format="integer" className="tabular-nums" />{" "}
-                {totalBallots === 1 ? "ballot" : "ballots"}
+                {totalBallots === 1 ? "response" : "responses"}
               </span>
               <LiveStatus status={liveStatus} />
               <span className="text-subtle-foreground" suppressHydrationWarning>
@@ -291,7 +291,7 @@ export default function EventDetailClient({
                 <div className="rounded-xl border border-border bg-surface-1 p-6">
                   <h2 className="text-balance text-xl font-bold">No questions yet</h2>
                   <p className="mt-2 text-pretty text-sm text-muted-foreground">
-                    The quiz creator hasn’t added any questions.
+                    The poll creator hasn’t added any questions.
                   </p>
                 </div>
               ) : (
@@ -459,10 +459,10 @@ export default function EventDetailClient({
 
           <aside className="lg:pt-0">
             <div className="rounded-xl border border-border bg-surface-1 p-5">
-              <h2 className="text-balance text-lg font-bold">Quiz summary</h2>
+              <h2 className="text-balance text-lg font-bold">Poll summary</h2>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="text-muted-foreground">Ballots</dt>
+                  <dt className="text-muted-foreground">Responses</dt>
                   <dd className="font-mono font-bold tabular-nums text-foreground">
                     <AnimatedNumber value={totalBallots} format="integer" />
                   </dd>
@@ -514,7 +514,7 @@ export default function EventDetailClient({
               disabled={pending || !allQuestionsAnswered || effectiveClosed}
               className="font-fluid min-h-11 w-full px-5 sm:w-auto"
             >
-              {pending ? "Submitting…" : "Submit final ballot"}
+              {pending ? "Submitting…" : "Submit answers"}
             </Button>
           </div>
         </div>
@@ -527,7 +527,7 @@ export default function EventDetailClient({
         >
           <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 text-sm text-foreground sm:px-6">
             <span aria-hidden="true">✓</span>
-            <p aria-live="polite">Ballot submitted. Your answers are final and can’t be edited.</p>
+            <p aria-live="polite">Answers submitted. Your answers are final and can’t be edited.</p>
           </div>
         </div>
       ) : null}
@@ -541,7 +541,7 @@ function LinkBack() {
       href="/discover"
       className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
-      ← Discover quizzes
+      ← Discover polls
     </Link>
   );
 }

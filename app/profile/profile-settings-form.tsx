@@ -63,14 +63,16 @@ export default function ProfileSettingsForm({ initialName }: { initialName: stri
         </Button>
       </form>
 
-      <Button
-        type="button"
-        variant="tertiary"
-        onClick={() => void signOut()}
-        className="font-fluid min-h-11 px-4"
-      >
-        Sign out
-      </Button>
+      <div className="border-t border-border pt-5">
+        <Button
+          type="button"
+          variant="tertiary"
+          onClick={() => void signOut()}
+          className="font-fluid min-h-11 px-4"
+        >
+          Sign out
+        </Button>
+      </div>
 
       <p aria-live="polite" className="min-h-5 text-sm text-muted-foreground">
         {message}

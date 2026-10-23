@@ -25,7 +25,7 @@ export default async function ProfilePage() {
         <section className="mx-auto w-full max-w-lg rounded-xl border border-border bg-surface-1 p-6 text-center sm:p-8">
           <h1 className="text-balance text-2xl font-bold">Sign in to view your profile</h1>
           <p className="mx-auto mt-2 max-w-sm text-pretty text-sm leading-5 text-muted-foreground">
-            Your quizzes, drafts and signed-in picks are saved to your account.
+            Your polls, drafts and signed-in picks are saved to your account.
           </p>
           <div className="mt-5">
             <SignInButton callbackURL="/profile" label="Continue with Google" />
@@ -121,7 +121,6 @@ export default async function ProfilePage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-balance text-2xl font-bold">Your profile</h1>
             <p className="mt-1 truncate text-sm text-muted-foreground">{viewer.email}</p>
-            <p className="mt-1 text-xs text-subtle-foreground">Email is read-only.</p>
           </div>
         </header>
 
@@ -134,9 +133,9 @@ export default async function ProfilePage() {
 
         <section aria-labelledby="my-quizzes-title" className="rounded-xl border border-border bg-surface-1 p-5 sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 id="my-quizzes-title" className="text-balance text-lg font-bold">My quizzes</h2>
+            <h2 id="my-quizzes-title" className="text-balance text-lg font-bold">My polls</h2>
             <Link href="/events/new" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-              Create a quiz
+              Create a poll
             </Link>
           </div>
           {quizzes.length ? (
@@ -172,7 +171,7 @@ export default async function ProfilePage() {
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-pretty text-sm text-muted-foreground">Your published quizzes will appear here.</p>
+            <p className="mt-3 text-pretty text-sm text-muted-foreground">Your published polls will appear here.</p>
           )}
         </section>
 
@@ -198,7 +197,7 @@ export default async function ProfilePage() {
             <div className="mt-3">
               <p className="text-pretty text-sm text-muted-foreground">Your saved drafts will appear here.</p>
               <Link href="/events/new" className="mt-3 inline-flex min-h-11 items-center rounded-md bg-accent-hover px-4 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                Create a quiz
+                Create a poll
               </Link>
             </div>
           )}
@@ -212,12 +211,12 @@ export default async function ProfilePage() {
                 const answersForBallot = answersByBallot.get(ballot.id);
                 const summary = answersForBallot
                   ? [...answersForBallot.values()].map(({ prompt, labels }) => `${prompt}: ${labels.join(", ")}`).join(" · ")
-                  : "Submitted ballot";
+                  : "Submitted response";
                 return (
                   <li key={ballot.id} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                     <div className="min-w-0">
                       <Link href={`/events/${ballot.eventId}`} className="font-medium underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                        {titles.get(ballot.eventId) ?? "Quiz"}
+                        {titles.get(ballot.eventId) ?? "Poll"}
                       </Link>
                       <p className="mt-1 text-pretty text-sm text-muted-foreground">{summary}</p>
                     </div>
