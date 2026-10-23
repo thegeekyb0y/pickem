@@ -27,7 +27,8 @@ export default function DiscoverStatusTabs({
     <Tabs value={view} onValueChange={changeView} size="compact">
       <TabsList
         aria-label="Poll status"
-        className="w-full justify-start rounded-none border-b border-border bg-transparent p-0"
+        indicator="flat"
+        className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 pb-1 [--focus-ring:var(--foreground)]"
       >
         <TabItem
           value="live"
