@@ -51,6 +51,30 @@ const resultsIpLimiter = new Ratelimit({
   analytics: false,
   timeout: 750,
 });
+const unsplashSearchLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, "1 h"),
+  prefix: "pickem:rate:unsplash-search",
+  ephemeralCache,
+  analytics: false,
+  timeout: 750,
+});
+const unsplashApiLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(45, "1 h"),
+  prefix: "pickem:rate:unsplash-api-global",
+  ephemeralCache,
+  analytics: false,
+  timeout: 750,
+});
+const quizCoverUploadLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(12, "1 h"),
+  prefix: "pickem:rate:quiz-cover-upload",
+  ephemeralCache,
+  analytics: false,
+  timeout: 750,
+});
 
 function digest(value: string) {
   const secret = process.env.RATE_LIMIT_HASH_SECRET ?? process.env.BETTER_AUTH_SECRET ?? "pickem-development";
@@ -95,4 +119,16 @@ export async function limitResultsRequest(ip: string, clientId: string, eventId:
     allowed(resultsIpLimiter, `${ip}:${eventId}`),
   ]);
   return clientAllowed && ipAllowed;
+}
+
+export async function limitUnsplashSearch(userId: string) {
+  return allowed(unsplashSearchLimiter, userId);
+}
+
+export async function limitUnsplashApiRequest() {
+  return allowed(unsplashApiLimiter, "global");
+}
+
+export async function limitQuizCoverUpload(userId: string) {
+  return allowed(quizCoverUploadLimiter, userId);
 }
