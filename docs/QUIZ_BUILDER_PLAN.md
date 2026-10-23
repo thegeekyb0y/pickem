@@ -3,15 +3,18 @@
 This document is the implementation handoff for replacing the current one-question
 poll model with quizzes containing independently configured questions.
 
-> **Status 2026-10-23:** WIP is committed on `feature/fluid-quiz-builder`
-> (latest local commits; run `git log`), with `backup/wip-quiz-builder` at
-> `f3abaa6` as the safety point. Schema, migration `0006`, the builder, covers,
-> multi-question voting/results, and tests exist but are not production-ready.
-> Migration `0006` has been rehearsed on local Docker Postgres only and has
-> **not** been applied to Neon. History is split into logical commits and pushed;
-> lint, typecheck, 66 unit tests, 15 integration tests, 4 Playwright e2e tests,
-> and production build pass. See
-> [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for the current state and resume
+> **Status 2026-10-23:** PRs #1 and #2 are merged into `origin/main`;
+> production tracks `main` and contains the multi-question builder. Migration
+> `0006` is applied to Neon production. Phase 1 reliability work is on
+> `fix/draft-save-reliability` and passes lint, typecheck, 66 unit tests, 16
+> integration tests, and production build. It fixes the
+> question/option timestamp constraint failure that blocked every draft save and
+> publish, syncs the draft URL on first save, replaces the flickering error
+> banner with a stable status surface, and stops repeated autosave retries after
+> a failure. Phase 2 is the compact poll-builder/terminology pass. The cover
+> direction is now owner-supplied pattern/preset artwork, custom uploads, and
+> cropping; Unsplash is not in the current roadmap. See
+> [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for the live state and resume
 > checklist.
 
 Keep all quiz work on a feature branch, rehearse database changes against local
@@ -26,7 +29,9 @@ database. Create a Neon backup branch before an approved Neon migration.
 - A Quiz contains 1–20 required Questions. Each Question has 2–8 options and its
   own `Pick one` or `Pick top N` type; Top N is 2–8. There is no quiz-wide pick
   type and nothing is asked upfront.
-- Use the UI terms **Quiz**, **Question**, **Pick one**, and **Pick top N**.
+- Use **Poll**, **Question**, **Pick one**, and **Pick top N** in user-facing
+  copy. The current build still says Quiz; the Phase 2 copy pass removes it.
+  Internal routes/types may keep their existing names.
 - Discovery lives at `/discover`; `/` remains an alias until a static landing
   page replaces it. The eventual landing page must not make a database call per
   visit.
@@ -39,21 +44,22 @@ database. Create a Neon backup branch before an approved Neon migration.
 
 ### Quiz cover
 
-Every quiz has a cover shown in the builder, quiz page, and Discover cards.
+Every poll has a cover shown in the builder, poll page, and Discover cards.
 Persist `cover_kind` (`preset`, `unsplash`, `upload`, `none`), `cover_ref`, and
-`cover_meta` JSONB in the expand migration. Metadata can contain photographer
-credit, photo ID, dominant color, and focal point.
+`cover_meta` JSONB. Metadata should carry the crop/focal rectangle for both
+preset and uploaded images.
 
 Sources:
 
-1. Presets owned by the app: gradients, patterns, and illustrations.
-2. Unsplash search only through a server route. Keep `UNSPLASH_ACCESS_KEY`
-   server-side; cache searches in Redis to respect the demo limit of 50 requests
-   per hour. Hotlink photo URLs via a custom image loader; show photographer and
-   Unsplash credit; call the Unsplash download endpoint when a photo is chosen.
-   Consult current official API guidelines during implementation.
-3. Vercel Blob uploads: PNG/JPEG/WebP only; enforce a size cap, resize to WebP,
+1. App-owned pattern/preset artwork supplied by the owner later. Keep this small
+   and static until the artwork exists.
+2. Vercel Blob uploads: PNG/JPEG/WebP only; enforce a size cap, resize to WebP,
    strip EXIF, require login, and rate-limit uploads.
+3. No cover.
+
+Both artwork and uploads need a crop step before save. Unsplash is not part of
+the current roadmap; leave the existing route/metadata code untouched until a
+cleanup decision, but do not block the cover redesign on it.
 
 Defer cover wireframe radii and aspect ratio until the design pass.
 
@@ -76,7 +82,7 @@ Defer cover wireframe radii and aspect ratio until the design pass.
 
 No compatibility validator is needed because there are no real users. Migration
 1 expands and backfills while the current code is still deployed. Deploy the new
-code after migration 1. Migration 2 contracts the legacy model after deployment.
+code after migration 1. Migration `0007` contracts the legacy model after deployment.
 Backfill one question for every existing event, copying its current pick type
 and maximum; attach its existing options to that question. A legacy prompt can
 be seeded from the event title and reviewed as part of backfill rehearsal.
@@ -192,11 +198,11 @@ it read; update conditionally and increment on success, returning a conflict on
 stale versions. Live result snapshots are per question and carry the same
 monotonic version gate so clients discard stale/out-of-order data.
 
-### Deploy and migration 2: contract
+### Deploy and migration `0007`: contract
 
 Deploy the new application after migration 1. Do not add a dual-schema or legacy
 compatibility validator. Once new code is live and the rehearsal confirms all
-reads/writes use the new model, migration 2 removes only superseded structures.
+reads/writes use the new model, `0007` removes only superseded structures.
 Illustrative contract SQL:
 
 ```sql
@@ -217,7 +223,7 @@ Exact legacy constraint/trigger names must be inspected in the rehearsal and
 removed only after confirming no new-code dependency. Retain the event-level
 `votes` row as the one ballot/identity row per quiz; `ballot_answers` contains
 the per-question selected options. Remove/recreate triggers and FKs transaction-
-safely according to the final schema. Migration 2 must not discard event
+safely according to the final schema. `0007` must not discard event
 identity, voter identity/tombstones, timestamps, or any backfilled answer.
 
 ## Ordered commit-sized work and acceptance tests
@@ -248,11 +254,12 @@ routes lazy-load it. Commit this independently while on `main`.
    uniqueness, optimistic version saves. Acceptance: stale save conflicts,
    concurrent reorder in one transaction, clone/delete-confirm flows, draft
    reload and all server-side validation boundaries.
-3. **Cover picker.** Add preset, Unsplash, and upload pathways with the stated
-   access, cache, privacy, credit, processing, and rate-limit rules. Acceptance:
-   server route never exposes Unsplash key; Redis cache behavior; credit and
-   download-endpoint call on selection; upload MIME/size/login/rate limits,
-   WebP/EXIF handling; cover renders in builder, quiz view, Discover.
+3. **Cover picker.** Add owner-supplied pattern/preset artwork, custom upload,
+   and no-cover paths with a compact thumbnail editor. Add cropping for both
+   artwork and uploads and persist the crop/focal data. Acceptance: upload
+   MIME/size/login/rate limits, WebP/EXIF handling, crop correctness at builder
+   and card aspect ratios, and cover rendering in builder, poll view, and
+   Discover. Unsplash is out of scope.
 4. **Stacked builder.** Add independent question type/options, reorder buttons,
    duplicate and confirmation-protected delete. Acceptance: 1–20 questions,
    2–8 options/question, required questions, each independent Pick one/Top N,
@@ -278,7 +285,7 @@ routes lazy-load it. Commit this independently while on `main`.
    open quizzes are no longer active/discoverable, sessions are revoked, and
    retries are idempotent. Do not implement before the rest of quiz work.
 
-After migration 1, deploy new code; migration 2 is a separately reviewed,
+After migration 1, deploy new code; `0007` is a separately reviewed,
 approved contract step. Do not combine either migration with the UI commits.
 
 ## Schema changes (separate from application commits)
@@ -301,12 +308,13 @@ approved contract step. Do not combine either migration with the UI commits.
   composite FKs and question-aware result queries.
 - Reusing `events` and `/events/<id>` avoids route/identity churn but keeps
   internal “event” terminology until a future cleanup.
-- Preset covers are cheap and reliable; Unsplash adds API quota/attribution and
-  policy obligations; uploads add processing, storage, abuse, and privacy work.
-- Confirm before implementation: should legacy event title become the first
-  question prompt during backfill (the SQL outline assumes yes); exact cover
-  preset catalogue and metadata schema; upload size cap and rate limits; exact
-  draft-version scope (whole quiz vs per-question); whether answered count means
-  questions with at least one selection or fully validated responses; and the
-  approved Neon backup/migration procedure. Cover wireframe radii/aspect ratio
-  intentionally remain deferred.
+- Owner-supplied pattern covers are cheap and reliable but need artwork and a
+  crop UI; uploads add processing, storage, abuse, and privacy work. Unsplash
+  adds API quota/attribution and policy obligations, so it is dropped from the
+  current roadmap.
+- Confirm before implementation: the final pattern catalogue and artwork format;
+  crop storage shape in `cover_meta` (rect vs focal point); upload size cap and
+  rate limits; exact draft-version scope (whole poll vs per-question); whether
+  answered count means questions with at least one selection or fully validated
+  responses; and the approved Neon backup/migration procedure for `0007`.
+  Cover wireframe radii/aspect ratio intentionally remain deferred.

@@ -143,16 +143,15 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [saveNote, setSaveNote] = useState("Draft changes save automatically.");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const formErrorRef = useRef<HTMLDivElement>(null);
+  const [saveFailure, setSaveFailure] = useState(false);
+  const formErrorRef = useRef<HTMLParagraphElement>(null);
   const saveDraftRef = useRef<((manual?: boolean) => Promise<void>) | null>(null);
 
   function markDirty() {
     revisionRef.current += 1;
-    blockedAutoSaveRef.current = false;
     setDirty(true);
     setErrors({});
     setSaveNote("Unsaved changes");
-    setFormError(null);
   }
 
   const buildInput = useCallback((
@@ -187,6 +186,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     savingRef.current = true;
     setIsSaving(true);
     const saveRevision = revisionRef.current;
+    const createdNewDraft = eventIdRef.current === null;
     try {
       const result = await saveQuiz(buildInput("draft", eventIdRef.current ? draftVersionRef.current : null));
       if (result.ok) {
@@ -195,7 +195,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         setEventId(result.eventId);
         setDraftVersion(result.draftVersion);
         setHasPasscode(result.hasPasscode);
-        if (!initial.eventId && !eventIdRef.current) {
+        if (createdNewDraft) {
           router.replace(`/events/new?draft=${result.eventId}`, { scroll: false });
         }
         if (saveRevision === revisionRef.current) {
@@ -206,17 +206,26 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         }
         setErrors({});
         setFormError(null);
+        setSaveFailure(false);
+        blockedAutoSaveRef.current = false;
       } else {
         setErrors(result.errors);
-        setFormError(result.formError);
+        setFormError(
+          result.formError ?? "Couldn’t save this draft. Fix the highlighted fields, then save again.",
+        );
         setSaveNote("Draft not saved");
+        setSaveFailure(Boolean(result.formError));
         blockedAutoSaveRef.current = true;
-        if (result.formError) formErrorRef.current?.focus();
+        queuedSaveRef.current = false;
+        if (manual) formErrorRef.current?.focus();
       }
     } catch {
       setSaveNote("Draft save failed");
-      setFormError("Couldn’t save this draft. Your changes are still here; try saving again.");
+      setFormError("Couldn’t save this draft. Check your connection and try again.");
+      setSaveFailure(true);
       blockedAutoSaveRef.current = true;
+      queuedSaveRef.current = false;
+      if (manual) formErrorRef.current?.focus();
     } finally {
       savingRef.current = false;
       setIsSaving(false);
@@ -225,7 +234,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         window.setTimeout(() => void saveDraftRef.current?.(false), 0);
       }
     }
-  }, [buildInput, initial.eventId, router]);
+  }, [buildInput, router]);
 
   useEffect(() => {
     saveDraftRef.current = saveDraft;
@@ -278,6 +287,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   async function publishQuiz() {
     if (savingRef.current) {
       setFormError("Your latest draft is still saving. Wait a moment, then publish.");
+      setSaveFailure(false);
       return;
     }
     const nextErrors: Record<string, string> = {};
@@ -295,7 +305,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     Object.assign(nextErrors, questionValidation.errors);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
-      setFormError("Review the highlighted quiz fields before publishing.");
+      setFormError("Review the highlighted fields before publishing.");
+      setSaveFailure(false);
       formErrorRef.current?.focus();
       return;
     }
@@ -303,6 +314,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     publishingRef.current = true;
     setPublishing(true);
     setFormError(null);
+    setSaveFailure(false);
     try {
       const result = await saveQuiz(buildInput("publish", eventIdRef.current ? draftVersionRef.current : null));
       if (result.ok) {
@@ -314,10 +326,10 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         return;
       }
       setErrors(result.errors);
-      setFormError(result.formError ?? "Couldn’t publish. Review the highlighted quiz fields.");
+      setFormError(result.formError ?? "Couldn’t publish. Review the highlighted fields and try again.");
       formErrorRef.current?.focus();
     } catch {
-      setFormError("Couldn’t publish this quiz. Your answers are still here; try again.");
+      setFormError("Couldn’t publish. Your edits are still here. Check your connection and try again.");
       formErrorRef.current?.focus();
     } finally {
       publishingRef.current = false;
@@ -334,21 +346,41 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
             {eventId ? "Edit quiz draft" : "Create a quiz"}
           </h1>
         </div>
-        <div className="flex items-center gap-3">
-          <p aria-live="polite" className="text-xs text-muted-foreground">
-            {isSaving ? "Saving draft…" : saveNote}
-          </p>
-          <Link href="/events/drafts" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-            My drafts
-          </Link>
-        </div>
+        <Link href="/events/drafts" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          My drafts
+        </Link>
       </header>
 
-      {formError ? (
-        <div ref={formErrorRef} tabIndex={-1} role="alert" className="rounded-lg border border-accent bg-surface-1 p-4 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-          {formError}
-        </div>
-      ) : null}
+      <div
+        className={cn(
+          "flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm",
+          formError
+            ? "border-accent bg-surface-1 text-accent"
+            : "border-border bg-surface-1 text-muted-foreground",
+        )}
+      >
+        <p
+          ref={formErrorRef}
+          tabIndex={formError ? -1 : undefined}
+          role={formError ? "alert" : "status"}
+          aria-live="polite"
+          className="text-pretty focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {isSaving ? "Saving draft…" : formError ?? saveNote}
+        </p>
+        {saveFailure ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="compact"
+            disabled={isSaving || publishing}
+            onClick={() => void saveDraftRef.current?.(true)}
+            className="font-fluid min-h-8 px-3"
+          >
+            Try again
+          </Button>
+        ) : null}
+      </div>
 
       <section aria-labelledby="quiz-basics-title" className="space-y-5 rounded-xl border border-border bg-surface-1 p-4 sm:p-6">
         <QuizCoverPicker

@@ -20,23 +20,24 @@ Last updated: 2026-10-23.
 
 ## Current repository state
 
-- Branch: `feature/fluid-quiz-builder`, tracking
-  `origin/feature/fluid-quiz-builder`
-- Current HEAD: run `git log -1 --oneline`. The former WIP commit has been
-  split into logical commits.
+- `origin/main` is `f399cfe Merge pull request #2 from
+  thegeekyb0y/feature/fluid-quiz-builder`. PRs #1 and #2 are merged, so `main`
+  now contains the multi-question builder. Production is expected to track
+  `main`; confirm the Vercel deployment before the smoke test.
+- Local `main` is still `23f0ae3 feat(profile): use Fluid inputs, badges, and
+  buttons`; fast-forward it before branching.
+- Local `feature/fluid-quiz-builder` is `cf101c5`, fully contained in
+  `origin/main`. Phase 1 work is on `fix/draft-save-reliability`, branched from
+  `origin/main`.
 - Safety branches: `backup/wip-quiz-builder` (`f3abaa6`) and
   `backup/pre-split-37cc032` (`37cc032`)
-- Local `main`: `23f0ae3 feat(profile): use Fluid inputs, badges, and buttons`
-- Locally recorded `origin/main`: `fb66fba docs: plan multi-question quiz
-  builder`; local `main` is 4 commits ahead. Fetch before assuming push state.
-- The feature branch is ahead of local `main`; run `git log` for the exact count.
-- The feature branch is pushed. A draft PR still needs to be created because the
-  GitHub CLI is not installed/authenticated.
-- Tracked working tree has uncommitted follow-up fixes from the local migration
-  rehearsal. The accidental `-files drizzle` artifact and temporary `.npmrc`
-  remain removed.
-- Migration `drizzle/0006_expand_quiz_questions.sql` has been rehearsed on local
-  Docker Postgres only. It has **not** been applied to Neon or production.
+- `fix/draft-save-reliability` contains the Phase 1 reliability fixes: the
+  question/option timestamp constraint failure, draft URL sync on first save,
+  the stable autosave status surface, and safer publish/save error copy.
+- Migration `drizzle/0006_expand_quiz_questions.sql` is applied to Neon
+  production. The legacy model was backfilled into questions, options, and
+  ballot answers. Keep `0007` separate and require a fresh production
+  create/vote smoke test plus a Neon backup branch first.
 - Local test container `pickem-test-pg` is running on port `55432`; integration
   and e2e suites point at it through `DATABASE_URL_TEST`.
 
@@ -126,13 +127,13 @@ exist. Invalidate listing/results caches and show an “edited” marker. Questi
 types, options, and picks lock after votes.
 
 **Covers.** Every quiz can show a cover in the builder, quiz page, and Discover
-card. Sources are app presets, server-only Unsplash search, and authenticated
-Vercel Blob uploads. Unsplash requires `UNSPLASH_ACCESS_KEY` server-side, a
-Redis-cached search (demo quota), hotlinked image URLs through a custom loader,
-photographer/Unsplash credit, and a download-endpoint call on selection.
-Uploads accept PNG/JPEG/WebP, enforce size caps, resize to WebP, strip EXIF,
-require login, and are rate-limited. The exact wireframe radii/aspect ratio is
-deferred.
+card. The active direction is app-owned preset/pattern artwork supplied later,
+plus authenticated custom uploads. Both paths need a crop step that persists the
+crop/focal data in `cover_meta`. Uploads accept PNG/JPEG/WebP, enforce size caps,
+resize to WebP, strip EXIF, require login, and are rate-limited. Unsplash is not
+part of the current roadmap; its route and metadata code remain in the tree for
+now but should not block cover work. The exact wireframe radii and aspect ratio
+are still deferred.
 
 **Migration sequence.** No legacy compatibility validator is needed because
 there are no real users. Migration 1 expands/backfills questions,
@@ -157,12 +158,17 @@ only) has its own migration gate.
   fields, `draftVersion`, and updated relations.
 - Migration `0006`: expand/backfill, deferrable question/option ordering,
   question-level triggers, ballot immutability/validation, caps. Rehearsed
-  locally with legacy single-choice and Top-N fixtures; backfill produced one
-  question per legacy event and three `ballot_answers` rows.
+  locally with legacy single-choice and Top-N fixtures, then applied to Neon.
 - WIP quiz builder: stacked questions, independent pick types, drag/up-down
   reorder, duplicate/delete confirmation, autosave with version conflicts.
+- Phase 1 reliability fixes: question/option inserts use database timestamps,
+  first-save draft URLs sync correctly, autosave failures stop retry loops and
+  use a stable status surface, and unknown save/publish errors are logged
+  without exposing user content.
 - WIP cover flow: presets, Unsplash search route/cache/credit, client image
-  preparation, sharp/WebP upload, cover rendering on cards and quiz pages.
+  preparation, sharp/WebP upload, cover rendering on cards and quiz pages. The
+  next cover pass replaces Unsplash with owner-supplied pattern/preset artwork,
+  custom uploads, and cropping.
 - WIP multi-question voting: one stacked page, answered count, atomic batched
   answer insert, per-question results, cache/version updates.
 - WIP tests and load scripts: quiz validation, quiz integrity, date picker,
@@ -170,12 +176,12 @@ only) has its own migration gate.
 
 ## Rehearsal and test status
 
-- Lint, typecheck, unit tests, and production build pass on the split branch.
-  Unit tests: 13 files / 66 tests.
+- Lint, typecheck, unit tests, integration tests, and production build pass.
+  Unit tests: 13 files / 66 tests. Integration tests: 4 files / 16 tests,
+  including the new `save-quiz` draft/publish regression.
 - Migration `0006` passed local rehearsal against `pickem-test-pg`: migrations
   `0000`–`0005`, legacy seed data, then `drizzle-kit migrate` for `0006`.
-  `drizzle.__drizzle_migrations` has seven rows; no Neon database was touched.
-- Integration tests: 3 files / 15 tests pass with `ALLOW_TEST_DB_MUTATION=1`.
+  It is now applied to Neon production; `0007` is still pending.
 - Playwright e2e: 4 tests pass against the local dev server and test database.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
@@ -192,32 +198,41 @@ only) has its own migration gate.
   and the user account has `FullControl`; no persistent cause was found. Treat
   it as a transient file-lock/tool write failure. Do not retry more than twice;
   stop and report instead.
-- Cover wireframe/aspect-ratio work is deferred.
+- Cover crop work, owner-supplied pattern artwork, and wireframe/aspect-ratio
+  decisions are deferred to the cover redesign.
 - Social link and account deletion are not implemented.
 - Docs previously claimed quiz work had not started; this file and the quiz plan
   are now the source of truth for the WIP state.
 
 ## Known gaps and next steps
 
-1. **Open the draft PR.** GitHub CLI is unavailable, so use the compare URL and
-   create the PR as a draft with the migration warning in the description.
-2. **Neon migration approval.** Local rehearsal is complete. Before touching
-   Neon, obtain explicit approval and create a Neon backup branch; then apply
-   `0006` and deploy the new code immediately after it.
-3. **Migration 2 contract.** Drop legacy `vote_picks`, `votes.option_id` /
+1. **Deploy Phase 1.** Deploy `fix/draft-save-reliability` to a preview,
+   smoke-test create/autosave/reload/publish/vote, then merge. No migration is
+   involved.
+2. **Phase 2: compact poll builder.** Rename user-facing quiz copy to poll, make
+   text fields visibly editable, compact the question/option editor, remove
+   question/option descriptions, fix the date-picker opacity, restore compact
+   status tabs, align select colors, and clean up profile settings.
+3. **Cover redesign.** Replace Unsplash with owner-supplied preset/pattern
+   artwork and custom uploads, use a compact thumbnail editor, and add cropping
+   that persists crop/focal data in `cover_meta`.
+4. **Migration `0007` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
-   only after the new model is live and proven. Keep it separate from UI work.
-4. **Edit published quizzes.** Implement the edit rules, edited marker, cache
+   only after a production create/vote smoke test. Keep it separate from UI work
+   and reconcile the missing Drizzle snapshots first.
+5. **Edit published quizzes.** Implement the edit rules, edited marker, cache
    invalidation, and immutable question/options after votes with concurrency
    tests.
-5. **Social link.** Separate migration gate for platform + handle constrained to
+6. **Social link.** Separate migration gate for platform + handle constrained to
    HTTPS `instagram.com` / `x.com`.
-6. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
+7. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
    retain a tombstone user, and close/unlist open quizzes.
-7. **Cover design pass.** Add the deferred wireframe radii/aspect ratio.
 8. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
    preview deployment, and replace ~2-second polling with WebSockets when the
    edge-request cost justifies it. Ranked scoring remains undefined.
+9. **Repository hygiene.** Fast-forward local `main`, delete the merged feature
+   branch after the Phase 1 branch is open, and keep new work off merged
+   branches.
 
 ## Resume checklist
 
