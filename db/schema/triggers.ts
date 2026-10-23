@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
 
+/**
+ * Historical single-question trigger definitions, retained for reference to
+ * migrations 0001–0005. They are intentionally not exported from the active
+ * schema; quiz-level replacements live in drizzle/0006_expand_quiz_questions.sql.
+ */
+
 // These definitions are applied by the hand-authored follow-up SQL migration.
 export const preventDeletingVotedOptionSql = sql`
   create or replace function prevent_deleting_voted_option()

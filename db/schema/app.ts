@@ -1,10 +1,10 @@
 import { relations, sql } from "drizzle-orm";
 import {
   check,
-  boolean,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -40,6 +40,18 @@ export const guestHandlePlatform = pgEnum("guest_handle_platform", [
 ]);
 
 export const pickType = pgEnum("pick_type", ["single", "top_n"]);
+export const coverKind = pgEnum("quiz_cover_kind", ["preset", "unsplash", "upload", "none"]);
+export type QuizCoverKind = (typeof coverKind.enumValues)[number];
+
+export type QuizCoverMeta = {
+  photoId?: string;
+  photographer?: string;
+  photographerUrl?: string;
+  photoUrl?: string;
+  downloadLocation?: string;
+  dominantColor?: string;
+  focalPoint?: { x: number; y: number };
+};
 
 export const events = pgTable(
   "events",
@@ -54,8 +66,10 @@ export const events = pgTable(
     visibility: eventVisibility("visibility").default("unlisted").notNull(),
     passcodeHash: text("passcode_hash"),
     draftStep: integer("draft_step"),
-    pickType: pickType("pick_type").default("single").notNull(),
-    maxPicks: integer("max_picks").default(1).notNull(),
+    draftVersion: integer("draft_version").default(1).notNull(),
+    coverKind: coverKind("cover_kind").default("none").notNull(),
+    coverRef: text("cover_ref"),
+    coverMeta: jsonb("cover_meta").$type<QuizCoverMeta | null>(),
     opensAt: timestamp("opens_at", { withTimezone: true }).notNull(),
     closesAt: timestamp("closes_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -79,9 +93,43 @@ export const events = pgTable(
       "events_draft_step_chk",
       sql`${table.draftStep} is null or ${table.draftStep} between 1 and 3`,
     ),
+    check("events_draft_version_chk", sql`${table.draftVersion} >= 1`),
     check(
-      "events_pick_type_max_picks_chk",
-      sql`(${table.pickType} = 'single' and ${table.maxPicks} = 1) or (${table.pickType} = 'top_n' and ${table.maxPicks} >= 2 and ${table.maxPicks} <= 8)`,
+      "events_cover_shape_chk",
+      sql`(${table.coverKind} = 'none' and ${table.coverRef} is null) or (${table.coverKind} <> 'none' and ${table.coverRef} is not null)`,
+    ),
+  ],
+);
+
+export const questions = pgTable(
+  "questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    prompt: text("prompt").default("").notNull(),
+    description: text("description"),
+    pickType: pickType("pick_type").default("single").notNull(),
+    maxPicks: integer("max_picks").default(1).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("questions_event_id_idx").on(table.eventId),
+    unique("questions_event_sort_order_unique").on(table.eventId, table.sortOrder),
+    unique("questions_id_event_id_unique").on(table.id, table.eventId),
+    check("questions_prompt_length_chk", sql`length(trim(${table.prompt})) <= 500`),
+    check("questions_description_length_chk", sql`${table.description} is null or length(${table.description}) <= 2000`),
+    check("questions_sort_order_chk", sql`${table.sortOrder} >= 0`),
+    check("questions_updated_after_created_chk", sql`${table.updatedAt} >= ${table.createdAt}`),
+    check(
+      "questions_pick_type_max_picks_chk",
+      sql`(${table.pickType} = 'single' and ${table.maxPicks} = 1) or (${table.pickType} = 'top_n' and ${table.maxPicks} between 2 and 8)`,
     ),
   ],
 );
@@ -90,9 +138,9 @@ export const options = pgTable(
   "options",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    eventId: uuid("event_id")
+    questionId: uuid("question_id")
       .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
+      .references(() => questions.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
     description: text("description"),
     imageSource: optionImageSource("image_source"),
@@ -107,9 +155,9 @@ export const options = pgTable(
       .notNull(),
   },
   (table) => [
-    index("options_event_id_idx").on(table.eventId),
-    unique("options_event_sort_order_unique").on(table.eventId, table.sortOrder),
-    unique("options_id_event_id_unique").on(table.id, table.eventId),
+    index("options_question_id_idx").on(table.questionId),
+    unique("options_question_sort_order_unique").on(table.questionId, table.sortOrder),
+    unique("options_id_question_id_unique").on(table.id, table.questionId),
     check("options_label_length_chk", sql`length(trim(${table.label})) between 1 and 120`),
     check(
       "options_description_length_chk",
@@ -180,19 +228,16 @@ export const votes = pgTable(
     eventId: uuid("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    optionId: uuid("option_id"),
     voterUserId: text("voter_user_id").references(() => user.id, { onDelete: "set null" }),
     guestSessionId: uuid("guest_session_id").references(() => voteGuestSessions.id, {
       onDelete: "restrict",
     }),
     guestHandle: text("guest_handle"),
     guestHandlePlatform: guestHandlePlatform("guest_handle_platform"),
-    isSubmitted: boolean("is_submitted").default(true).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("votes_event_id_idx").on(table.eventId),
-    index("votes_option_id_idx").on(table.optionId),
     index("votes_voter_user_id_idx").on(table.voterUserId),
     index("votes_guest_session_id_idx").on(table.guestSessionId),
     uniqueIndex("votes_logged_in_dedupe_unique")
@@ -201,11 +246,6 @@ export const votes = pgTable(
     uniqueIndex("votes_guest_dedupe_unique")
       .on(table.eventId, table.guestSessionId)
       .where(sql`${table.guestSessionId} is not null`),
-    foreignKey({
-      name: "votes_option_event_fk",
-      columns: [table.optionId, table.eventId],
-      foreignColumns: [options.id, options.eventId],
-    }),
     unique("votes_id_event_id_unique").on(table.id, table.eventId),
     check(
       "votes_identity_shape_chk",
@@ -225,65 +265,81 @@ export const votes = pgTable(
       "votes_guest_handle_length_chk",
       sql`${table.guestHandle} is null or length(trim(${table.guestHandle})) between 1 and 40`,
     ),
-    check(
-      "votes_option_requires_submitted_chk",
-      sql`${table.optionId} is null or ${table.isSubmitted} = true`,
-    ),
   ],
 );
 
-export const votePicks = pgTable(
-  "vote_picks",
+export const ballotAnswers = pgTable(
+  "ballot_answers",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     voteId: uuid("vote_id").notNull(),
     eventId: uuid("event_id").notNull(),
+    questionId: uuid("question_id").notNull(),
     optionId: uuid("option_id").notNull(),
     rankPosition: integer("rank_position").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    unique("vote_picks_vote_option_unique").on(table.voteId, table.optionId),
-    unique("vote_picks_vote_rank_unique").on(table.voteId, table.rankPosition),
+    unique("ballot_answers_vote_question_option_unique").on(table.voteId, table.questionId, table.optionId),
+    unique("ballot_answers_vote_question_rank_unique").on(table.voteId, table.questionId, table.rankPosition),
     foreignKey({
-      name: "vote_picks_vote_event_fk",
+      name: "ballot_answers_vote_event_fk",
       columns: [table.voteId, table.eventId],
       foreignColumns: [votes.id, votes.eventId],
     }).onDelete("cascade"),
     foreignKey({
-      name: "vote_picks_option_event_fk",
-      columns: [table.optionId, table.eventId],
-      foreignColumns: [options.id, options.eventId],
+      name: "ballot_answers_question_event_fk",
+      columns: [table.questionId, table.eventId],
+      foreignColumns: [questions.id, questions.eventId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "ballot_answers_option_question_fk",
+      columns: [table.optionId, table.questionId],
+      foreignColumns: [options.id, options.questionId],
     }),
-    index("vote_picks_event_option_rank_idx").on(
-      table.eventId,
+    index("ballot_answers_question_option_rank_idx").on(
+      table.questionId,
       table.optionId,
       table.rankPosition,
     ),
-    index("vote_picks_vote_id_idx").on(table.voteId),
-    check("vote_picks_rank_position_chk", sql`${table.rankPosition} between 1 and 8`),
+    index("ballot_answers_vote_id_idx").on(table.voteId),
+    check("ballot_answers_rank_position_chk", sql`${table.rankPosition} between 1 and 8`),
   ],
 );
+
+/*
+ * Drizzle's current unique builder does not express DEFERRABLE constraints.
+ * The question and option sort-order UNIQUE constraints are marked
+ * DEFERRABLE INITIALLY DEFERRED by the authored expand migration so an order
+ * swap can be applied atomically.
+ */
 
 export const eventsRelations = relations(events, ({ many, one }) => ({
   creator: one(user, {
     fields: [events.creatorUserId],
     references: [user.id],
   }),
-  options: many(options),
+  questions: many(questions),
   votes: many(votes),
-  votePicks: many(votePicks),
   guestSessions: many(voteGuestSessions),
   passcodeUnlocks: many(eventPasscodeUnlocks),
 }));
 
-export const optionsRelations = relations(options, ({ many, one }) => ({
+export const questionsRelations = relations(questions, ({ many, one }) => ({
   event: one(events, {
-    fields: [options.eventId],
+    fields: [questions.eventId],
     references: [events.id],
   }),
-  votes: many(votes),
-  picks: many(votePicks),
+  options: many(options),
+  answers: many(ballotAnswers),
+}));
+
+export const optionsRelations = relations(options, ({ many, one }) => ({
+  question: one(questions, {
+    fields: [options.questionId],
+    references: [questions.id],
+  }),
+  answers: many(ballotAnswers),
 }));
 
 export const voteGuestSessionsRelations = relations(voteGuestSessions, ({ many, one }) => ({
@@ -306,10 +362,6 @@ export const votesRelations = relations(votes, ({ one, many }) => ({
     fields: [votes.eventId],
     references: [events.id],
   }),
-  option: one(options, {
-    fields: [votes.optionId],
-    references: [options.id],
-  }),
   voter: one(user, {
     fields: [votes.voterUserId],
     references: [user.id],
@@ -318,20 +370,24 @@ export const votesRelations = relations(votes, ({ one, many }) => ({
     fields: [votes.guestSessionId],
     references: [voteGuestSessions.id],
   }),
-  picks: many(votePicks),
+  answers: many(ballotAnswers),
 }));
 
-export const votePicksRelations = relations(votePicks, ({ one }) => ({
+export const ballotAnswersRelations = relations(ballotAnswers, ({ one }) => ({
   vote: one(votes, {
-    fields: [votePicks.voteId],
+    fields: [ballotAnswers.voteId],
     references: [votes.id],
   }),
   event: one(events, {
-    fields: [votePicks.eventId],
+    fields: [ballotAnswers.eventId],
     references: [events.id],
   }),
+  question: one(questions, {
+    fields: [ballotAnswers.questionId],
+    references: [questions.id],
+  }),
   option: one(options, {
-    fields: [votePicks.optionId],
+    fields: [ballotAnswers.optionId],
     references: [options.id],
   }),
 }));

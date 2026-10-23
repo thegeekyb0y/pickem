@@ -43,6 +43,13 @@
       "when": 1792451869417,
       "tag": "0005_allow_event_cascade_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792785600000,
+      "tag": "0006_expand_quiz_questions",
+      "breakpoints": true
     }
   ]
 }
