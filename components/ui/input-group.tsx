@@ -98,8 +98,6 @@ interface InputFieldProps
   labelHidden?: boolean;
   placeholder?: string;
   icon?: IconComponent;
-  /** Optional control rendered inside the field before the input. Interactive
-   *  children keep their own focus instead of focusing the text input. */
   leading?: ReactNode;
   index: number;
   value: string;
@@ -230,7 +228,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
           onMouseDown={(e) => {
             // The old wrapper was one big <label>, so a click anywhere (icon,
             // padding) focused the input. Keep that, without disturbing the
-            // input's own caret placement or an interactive leading control.
+            // input's own caret placement.
             if (e.target === inputRef.current) return;
             if ((e.target as HTMLElement).closest("[data-input-leading]")) return;
             e.preventDefault();
