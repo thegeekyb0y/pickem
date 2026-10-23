@@ -24,6 +24,9 @@
   absolutely positioned selection/focus/hover overlays and fixed control
   internals may animate measured bounds only when surrounding layout does not
   reflow; custom UI does not animate layout properties.
+- The installed Fluid dialog uses `spring.moderate` for its `sm` confirmation
+  size and `spring.slow` only for `lg`/`xl` surfaces, keeping small interaction
+  feedback within 200ms while preserving Fluid's paired exits.
 - Keep pointer cursors on actionable elements. Fluid Hover is mouse-only;
   avoid gap-click for ambiguous/destructive/data-changing actions; preserve
   keyboard focus and touch interactions.
