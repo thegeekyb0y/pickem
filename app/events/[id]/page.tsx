@@ -4,10 +4,9 @@ import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import {
+  ballotAnswers,
   events,
-  options,
   voteGuestSessions,
-  votePicks,
   votes,
 } from "@/db/schema/app";
 import { GUEST_COOKIE, hashGuestToken, hasEventUnlock } from "@/lib/events/access";
@@ -24,7 +23,15 @@ export default async function EventDetailPage({
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
     notFound();
   }
-  const event = await db.query.events.findFirst({ where: eq(events.id, id) });
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, id),
+    with: {
+      questions: {
+        orderBy: (table, { asc }) => [asc(table.sortOrder)],
+        with: { options: { orderBy: (table, { asc }) => [asc(table.sortOrder)] } },
+      },
+    },
+  });
   if (!event) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
@@ -71,22 +78,18 @@ export default async function EventDetailPage({
     }
   }
 
-  const optionRows = await db.query.options.findMany({
-    where: eq(options.eventId, event.id),
-    orderBy: (table, { asc }) => [asc(table.sortOrder)],
-  });
-  const previousRanks = viewerVote
-    ? event.pickType === "single"
-      ? viewerVote.optionId
-        ? [viewerVote.optionId]
-        : []
-      : (
-          await db.query.votePicks.findMany({
-            where: eq(votePicks.voteId, viewerVote.id),
-            orderBy: (table, { asc }) => [asc(table.rankPosition)],
-          })
-        ).map((pick) => pick.optionId)
-    : [];
+  const initialAnswers: Record<string, string[]> = {};
+  if (viewerVote) {
+    const answers = await db.query.ballotAnswers.findMany({
+      where: eq(ballotAnswers.voteId, viewerVote.id),
+      orderBy: (table, { asc }) => [asc(table.questionId), asc(table.rankPosition)],
+    });
+    for (const answer of answers) {
+      const current = initialAnswers[answer.questionId] ?? [];
+      current.push(answer.optionId);
+      initialAnswers[answer.questionId] = current;
+    }
+  }
 
   return (
     <EventDetailClient
@@ -96,20 +99,28 @@ export default async function EventDetailPage({
         description: event.description,
         status: event.status,
         visibility: event.visibility,
-        pickType: event.pickType,
-        maxPicks: event.maxPicks,
         opensAt: event.opensAt.toISOString(),
         closesAt: event.closesAt.toISOString(),
+        coverKind: event.coverKind,
+        coverRef: event.coverRef,
+        coverMeta: event.coverMeta,
       }}
-      options={optionRows.map((option) => ({
-        id: option.id,
-        label: option.label,
-        description: option.description,
-        imageUrl: option.imageUrl,
-        imageAlt: option.imageAlt,
+      questions={event.questions.map((question) => ({
+        id: question.id,
+        prompt: question.prompt,
+        description: question.description,
+        pickType: question.pickType,
+        maxPicks: question.maxPicks,
+        options: question.options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          description: option.description,
+          imageUrl: option.imageUrl,
+          imageAlt: option.imageAlt,
+        })),
       }))}
       initialSnapshot={snapshot}
-      initialVoteIds={previousRanks}
+      initialAnswers={initialAnswers}
       isLoggedIn={userId != null}
       notStarted={event.opensAt > now}
       isClosed={

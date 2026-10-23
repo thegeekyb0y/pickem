@@ -123,6 +123,9 @@ const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
     const open = useContext(DialogOpenContext);
     const shape = useShape();
     const substrate = useSurface();
+    // Small confirmation dialogs use the moderate tier to keep interaction
+    // feedback within the app's 200ms limit. Only larger surfaces use slow.
+    const dialogSpring = size === "sm" ? spring.moderate : spring.slow;
     const dialogLevel = Math.min(substrate + DIALOG_OFFSET, 8);
     // The size ladder narrows the dialog one notch in compact regions —
     // width only, the padding stays put (see /docs/sizes).
@@ -136,13 +139,13 @@ const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
     // Fallback release for the deferred unmount: onAnimationComplete on the
     // panel is the primary signal, but rAF-driven animation callbacks can
     // stall in throttled/background tabs — leaving an invisible full-screen
-    // overlay (and Radix's scroll lock) in place. Both exit tweens run at
-    // spring.slow.exit, so the fallback tracks that tier.
+    // overlay (and Radix's scroll lock) in place. The fallback follows the
+    // paired exit tween for this dialog's size tier.
     useEffect(() => {
       if (open) return;
-      const id = setTimeout(() => setMounted(false), exitFallbackMs(spring.slow));
+      const id = setTimeout(() => setMounted(false), exitFallbackMs(dialogSpring));
       return () => clearTimeout(id);
-    }, [open]);
+    }, [dialogSpring, open]);
 
     const handleExitComplete = () => {
       if (!open) setMounted(false);
@@ -160,7 +163,7 @@ const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
             )}
             initial={{ opacity: 0 }}
             animate={{ opacity: open ? 1 : 0 }}
-            transition={open ? spring.slow : spring.slow.exit}
+            transition={open ? dialogSpring : dialogSpring.exit}
           />
         </DialogPrimitive.Overlay>
         <DialogPrimitive.Content ref={ref} asChild forceMount {...props}>
@@ -184,7 +187,7 @@ const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
               x: "-50%",
               y: position === "top" ? 0 : "-50%",
             }}
-            transition={open ? spring.slow : spring.slow.exit}
+            transition={open ? dialogSpring : dialogSpring.exit}
             onAnimationComplete={handleExitComplete}
           >
             <SurfaceProvider value={dialogLevel}>

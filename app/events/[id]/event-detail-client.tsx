@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { InputField, InputGroup } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import QuizCover from "@/components/quiz-cover";
 import { cn } from "@/lib/cn";
+import type { QuizCoverKind, QuizCoverMeta } from "@/db/schema/app";
 import type { ResultSnapshot } from "@/lib/events/results";
 import { useLiveResults } from "@/lib/live/use-live-results";
 import { submitVote } from "@/lib/events/voting";
@@ -15,62 +21,98 @@ import OwnerControls from "./owner-controls";
 import ResultBar from "./result-bar";
 import ShareButton from "./share-button";
 
+type QuestionData = {
+  id: string;
+  prompt: string;
+  description: string | null;
+  pickType: "single" | "top_n";
+  maxPicks: number;
+  options: {
+    id: string;
+    label: string;
+    description: string | null;
+    imageUrl: string | null;
+    imageAlt: string | null;
+  }[];
+};
+
 type EventData = {
   id: string;
   title: string;
   description: string | null;
   status: string;
   visibility: string;
-  pickType: "single" | "top_n";
-  maxPicks: number;
   opensAt: string;
   closesAt: string;
+  coverKind: QuizCoverKind;
+  coverRef: string | null;
+  coverMeta: QuizCoverMeta | null;
 };
 
-type OptionData = {
-  id: string;
-  label: string;
-  description: string | null;
-  imageUrl: string | null;
-  imageAlt: string | null;
-};
-
-function dateFormat(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZoneName: "short",
   }).format(new Date(value));
 }
 
-function CheckIcon() {
+function countdownLabel(milliseconds: number) {
+  if (milliseconds <= 0) return "Closed";
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const format = (value: number) =>
+    new Intl.NumberFormat(undefined, { minimumIntegerDigits: 2 }).format(value);
+  if (days > 0) return `${days}d ${format(hours)}h ${format(minutes)}m`;
+  if (hours > 0) return `${format(hours)}h ${format(minutes)}m ${format(seconds)}s`;
+  return `${format(minutes)}m ${format(seconds)}s`;
+}
+
+function Countdown({ target, label }: { target: string; label: string }) {
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    let interval: number | undefined;
+    const start = () => {
+      if (interval !== undefined) window.clearInterval(interval);
+      if (document.visibilityState === "visible") {
+        setNow(Date.now());
+        interval = window.setInterval(() => setNow(Date.now()), 1000);
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", start);
+    return () => {
+      if (interval !== undefined) window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", start);
+    };
+  }, []);
+
+  if (now === 0) return null;
   return (
-    <svg
-      aria-hidden="true"
-      className="size-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth="2.5"
-    >
-      <path d="m5 13 4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <span className="font-mono tabular-nums" aria-label={`${label} ${countdownLabel(Date.parse(target) - now)}`}>
+      {countdownLabel(Date.parse(target) - now)}
+    </span>
   );
 }
 
 export default function EventDetailClient({
   event,
-  options,
+  questions,
   initialSnapshot,
-  initialVoteIds,
+  initialAnswers,
   isLoggedIn,
   notStarted,
   isClosed,
   isOwner,
 }: {
   event: EventData;
-  options: OptionData[];
+  questions: QuestionData[];
   initialSnapshot: ResultSnapshot;
-  initialVoteIds: string[];
+  initialAnswers: Record<string, string[]>;
   isLoggedIn: boolean;
   notStarted: boolean;
   isClosed: boolean;
@@ -83,37 +125,48 @@ export default function EventDetailClient({
     initial: initialSnapshot,
     enabled: !isClosed && !notStarted,
   });
-  const [selectedIds, setSelectedIds] = useState(initialVoteIds);
-  const [hasVoted, setHasVoted] = useState(initialVoteIds.length > 0);
+  const [selectedByQuestion, setSelectedByQuestion] = useState(initialAnswers);
+  const [hasVoted, setHasVoted] = useState(Object.values(initialAnswers).some((ids) => ids.length > 0));
   const [guestHandle, setGuestHandle] = useState("");
   const [guestPlatform, setGuestPlatform] = useState<"instagram" | "x">("instagram");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-
   const totalBallots = snapshot.totalBallots;
   const effectiveClosed = isClosed || snapshot.closed;
-  const selectionLimit = event.pickType === "single" ? 1 : event.maxPicks;
-  const canVote = !effectiveClosed && !hasVoted && options.length > 0;
+  const answeredCount = questions.reduce(
+    (count, question) => count + ((selectedByQuestion[question.id]?.length ?? 0) > 0 ? 1 : 0),
+    0,
+  );
+  const canVote = !effectiveClosed && !hasVoted && questions.length > 0;
+  const allQuestionsAnswered = answeredCount === questions.length;
+  const timeTarget = notStarted ? event.opensAt : event.closesAt;
+  const timeLabel = notStarted ? "Opens" : "Closes";
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  function toggleOption(optionId: string) {
+  function toggleOption(question: QuestionData, optionId: string) {
     if (!canVote || pending) return;
     setError(null);
-    setSelectedIds((current) => {
-      if (current.includes(optionId)) {
-        return current.filter((id) => id !== optionId);
+    setSelectedByQuestion((current) => {
+      const selected = current[question.id] ?? [];
+      if (selected.includes(optionId)) {
+        return { ...current, [question.id]: selected.filter((id) => id !== optionId) };
       }
-      if (current.length >= selectionLimit) return current;
-      return [...current, optionId];
+      if (question.pickType === "single") {
+        return { ...current, [question.id]: [optionId] };
+      }
+      if (selected.length >= question.maxPicks) return current;
+      return { ...current, [question.id]: [...selected, optionId] };
     });
   }
 
   async function castVote() {
-    if (selectedIds.length < 1 || selectedIds.length > selectionLimit) {
-      setError(
-        event.pickType === "single"
-          ? "Choose one option before submitting."
-          : `Choose between one and ${event.maxPicks} options, in order.`,
-      );
+    if (!allQuestionsAnswered) {
+      setError("Answer every question before submitting your ballot.");
+      const unanswered = questions.find((question) => !(selectedByQuestion[question.id]?.length));
+      document.getElementById(`question-${unanswered?.id}`)?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "center",
+      });
       return;
     }
     if (!isLoggedIn && guestHandle.trim() === "") {
@@ -126,7 +179,10 @@ export default function EventDetailClient({
     setError(null);
     const result = await submitVote({
       eventId: event.id,
-      optionIds: selectedIds,
+      answers: questions.map((question) => ({
+        questionId: question.id,
+        optionIds: selectedByQuestion[question.id] ?? [],
+      })),
       guestHandle: isLoggedIn ? undefined : guestHandle,
       guestHandlePlatform: isLoggedIn ? undefined : guestPlatform,
     });
@@ -141,42 +197,60 @@ export default function EventDetailClient({
     }
   }
 
-  const chosenNames = selectedIds
-    .map((id) => options.find((option) => option.id === id)?.label)
-    .filter((label): label is string => Boolean(label));
-
   return (
     <main className="min-h-dvh bg-background text-foreground">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-10">
-        <Link
-          href="/"
-          className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          ← All polls
-        </Link>
+        <LinkBack />
 
         <div className="mt-5 grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <section>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-sm border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {event.visibility === "discoverable"
-                  ? "Discoverable"
-                  : event.visibility === "passcode"
-                    ? "Passcode"
-                    : "Unlisted"}
-              </span>
-              {!effectiveClosed ? (
-                <span className="inline-flex items-center gap-2 rounded-sm border border-accent px-3 py-1 text-sm font-medium text-accent">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
-                  Voting open
-                </span>
-              ) : (
-                <span className="rounded-sm border border-border px-3 py-1 text-sm font-medium text-muted-foreground">
-                  {notStarted ? "Not open yet" : "Voting closed"}
-                </span>
-              )}
-            </div>
+          <section className="min-w-0">
+            <QuizCover
+              kind={event.coverKind}
+              coverRef={event.coverRef}
+              meta={event.coverMeta}
+              layout="banner"
+            />
+            {event.coverKind === "unsplash" && event.coverMeta?.photographer ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Photo by{" "}
+                {event.coverMeta.photographerUrl ? (
+                  <a
+                    href={event.coverMeta.photographerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {event.coverMeta.photographer}
+                  </a>
+                ) : (
+                  event.coverMeta.photographer
+                )}{" "}
+                on{" "}
+                {event.coverMeta.photoUrl ? (
+                  <a
+                    href={event.coverMeta.photoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    Unsplash
+                  </a>
+                ) : "Unsplash"}
+              </p>
+            ) : null}
 
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <Badge
+                size="compact"
+                variant="dot"
+                color={effectiveClosed ? "gray" : notStarted ? "amber" : "green"}
+              >
+                {effectiveClosed ? (notStarted ? "Scheduled" : "Closed") : notStarted ? "Upcoming" : "Live"}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {event.visibility === "discoverable" ? "Discoverable" : event.visibility === "passcode" ? "Passcode protected" : "Unlisted"}
+              </span>
+            </div>
             <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
               <h1 className="text-balance text-3xl font-bold leading-10 sm:text-4xl sm:leading-[3rem]">
                 {event.title}
@@ -199,176 +273,182 @@ export default function EventDetailClient({
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tabular-nums">
-              {snapshot.talliesVisible ? (
-                <span className="text-foreground" data-testid="ballot-count">
-                  <AnimatedNumber value={totalBallots} format="integer" className="tabular-nums" />{" "}
-                  {totalBallots === 1 ? "ballot" : "ballots"}
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Results hidden until the poll closes</span>
-              )}
+              <span className="text-foreground" data-testid="ballot-count">
+                <AnimatedNumber value={totalBallots} format="integer" className="tabular-nums" />{" "}
+                {totalBallots === 1 ? "ballot" : "ballots"}
+              </span>
               <LiveStatus status={liveStatus} />
               <span className="text-subtle-foreground">
-                {notStarted
-                  ? `Opens ${dateFormat(event.opensAt)}`
-                  : `Closes ${dateFormat(event.closesAt)}`}
+                {timeLabel} {formatDate(timeTarget)} ({timezone}) · <Countdown target={timeTarget} label={timeLabel} />
               </span>
             </div>
 
-            <div className="mt-6">
-              {options.length === 0 ? (
-                <div className="rounded-lg border border-border bg-surface-1 p-6">
-                  <h2 className="text-balance text-xl font-bold">No options yet</h2>
-                  <p className="mt-2 text-pretty text-sm leading-5 text-muted-foreground">
-                    The poll creator hasn’t added any options.
+            <div className="mt-6 space-y-5">
+              {questions.length === 0 ? (
+                <div className="rounded-xl border border-border bg-surface-1 p-6">
+                  <h2 className="text-balance text-xl font-bold">No questions yet</h2>
+                  <p className="mt-2 text-pretty text-sm text-muted-foreground">
+                    The quiz creator hasn’t added any questions.
                   </p>
                 </div>
               ) : (
-                <ul className="space-y-3" aria-label="Poll options">
-                  {options.map((option) => {
-                    const selectionIndex = selectedIds.indexOf(option.id);
-                    const selected = selectionIndex >= 0;
-                    const count = snapshot.counts[option.id] ?? 0;
-                    const share = totalBallots === 0 ? 0 : count / totalBallots;
-                    const disabled =
-                      !canVote ||
-                      pending ||
-                      (!selected && selectedIds.length >= selectionLimit);
-                    return (
-                      <li key={option.id}>
-                        <motion.button
-                          type="button"
-                          aria-pressed={selected}
-                          aria-label={
-                            event.pickType === "top_n"
-                              ? `${option.label}${selected ? `, rank ${selectionIndex + 1}` : ""}`
-                              : option.label
-                          }
-                          disabled={disabled}
-                          onClick={() => toggleOption(option.id)}
-                          whileTap={reduceMotion || disabled ? undefined : { scale: 0.99 }}
-                          transition={{ duration: reduceMotion ? 0 : 0.12, ease: "easeOut" }}
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-lg border bg-surface-1 p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                            selected ? "border-accent bg-surface-2" : "border-border",
-                            canVote && !disabled && "hover:border-accent",
-                            disabled && !selected && "opacity-80",
-                          )}
-                        >
-                          {option.imageUrl ? (
-                            <Image
-                              src={option.imageUrl}
-                              alt={option.imageAlt ?? option.label}
-                              width={48}
-                              height={48}
-                              unoptimized
-                              className="size-12 shrink-0 rounded-md border border-border object-cover"
-                            />
+                questions.map((question, questionIndex) => {
+                  const selectedIds = selectedByQuestion[question.id] ?? [];
+                  const questionResult = snapshot.questions.find(
+                    (result) => result.questionId === question.id,
+                  );
+                  return (
+                    <section
+                      id={`question-${question.id}`}
+                      key={question.id}
+                      aria-labelledby={`question-title-${question.id}`}
+                      className="rounded-xl border border-border bg-surface-1 p-4 sm:p-5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs tabular-nums text-subtle-foreground">
+                            Question {questionIndex + 1} of {questions.length}
+                          </p>
+                          <h2 id={`question-title-${question.id}`} className="mt-1 text-balance text-xl font-bold">
+                            {question.prompt}
+                          </h2>
+                          {question.description ? (
+                            <p className="mt-1 text-pretty text-sm leading-5 text-muted-foreground">
+                              {question.description}
+                            </p>
                           ) : null}
+                        </div>
+                        <Badge size="compact" color="gray">
+                          {question.pickType === "single" ? "Pick one" : `Pick top ${question.maxPicks}`}
+                        </Badge>
+                      </div>
 
-                          {event.pickType === "top_n" ? (
-                            <span
-                              aria-hidden="true"
-                              className={cn(
-                                "grid size-8 shrink-0 place-items-center rounded-full border font-mono text-sm font-bold tabular-nums",
-                                selected
-                                  ? "border-accent bg-accent text-accent-foreground"
-                                  : "border-border text-subtle-foreground",
-                              )}
-                            >
-                              {selected ? selectionIndex + 1 : "—"}
-                            </span>
-                          ) : selected ? (
-                            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
-                              <CheckIcon />
-                            </span>
-                          ) : null}
-
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-base font-bold text-foreground">
-                              {option.label}
-                            </span>
-                            {option.description ? (
-                              <span className="mt-0.5 line-clamp-2 block text-sm leading-5 text-muted-foreground">
-                                {option.description}
-                              </span>
-                            ) : null}
-                            {snapshot.talliesVisible ? (
-                              <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-surface-3">
-                                <ResultBar share={Math.min(share, 1)} selected={selected} />
-                              </span>
-                            ) : null}
-                          </span>
-                          {snapshot.talliesVisible ? (
-                            <span className="shrink-0 text-right">
-                              <span className="block font-mono text-xl font-bold tabular-nums text-foreground">
-                                <AnimatedNumber value={share} format="percent" />
-                              </span>
-                              <span className="block font-mono text-xs tabular-nums text-muted-foreground">
-                                <AnimatedNumber value={count} format="integer" />{" "}
-                                {event.pickType === "top_n" ? "picked" : "votes"}
-                              </span>
-                            </span>
-                          ) : null}
-                        </motion.button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                      <ul className="mt-4 space-y-2" aria-label={`Options for question ${questionIndex + 1}`}>
+                        {question.options.map((option) => {
+                          const selectionIndex = selectedIds.indexOf(option.id);
+                          const selected = selectionIndex >= 0;
+                          const count = questionResult?.counts[option.id] ?? 0;
+                          const questionTotal = questionResult?.totalBallots ?? 0;
+                          const share = questionTotal === 0 ? 0 : count / questionTotal;
+                          const selectionLimit = question.pickType === "single" ? 1 : question.maxPicks;
+                          const disabled = !canVote || pending || (!selected && selectedIds.length >= selectionLimit);
+                          return (
+                            <li key={option.id}>
+                              <motion.button
+                                type="button"
+                                aria-pressed={selected}
+                                aria-label={question.pickType === "top_n"
+                                  ? `${option.label}${selected ? `, rank ${selectionIndex + 1}` : ""}`
+                                  : option.label}
+                                disabled={disabled}
+                                onClick={() => toggleOption(question, option.id)}
+                                whileTap={reduceMotion || disabled ? undefined : { scale: 0.99 }}
+                                transition={{ duration: reduceMotion ? 0 : 0.12, ease: "easeOut" }}
+                                className={cn(
+                                  "flex min-h-16 w-full items-center gap-3 rounded-lg border bg-surface-1 p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:p-4",
+                                  selected ? "border-accent bg-surface-2" : "border-border",
+                                  canVote && !disabled && "hover:border-accent",
+                                  disabled && !selected && "opacity-80",
+                                )}
+                              >
+                                {option.imageUrl ? (
+                                  <Image
+                                    src={option.imageUrl}
+                                    alt={option.imageAlt ?? option.label}
+                                    width={48}
+                                    height={48}
+                                    unoptimized
+                                    className="size-12 shrink-0 rounded-md border border-border object-cover"
+                                  />
+                                ) : null}
+                                {question.pickType === "top_n" ? (
+                                  <span aria-hidden="true" className={cn(
+                                    "grid size-8 shrink-0 place-items-center rounded-full border font-mono text-sm font-bold tabular-nums",
+                                    selected ? "border-accent bg-accent text-accent-foreground" : "border-border text-subtle-foreground",
+                                  )}>
+                                    {selected ? selectionIndex + 1 : "—"}
+                                  </span>
+                                ) : selected ? (
+                                  <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">✓</span>
+                                ) : null}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-base font-bold text-foreground">
+                                    {option.label}
+                                  </span>
+                                  {option.description ? (
+                                    <span className="mt-0.5 line-clamp-2 block text-sm leading-5 text-muted-foreground">
+                                      {option.description}
+                                    </span>
+                                  ) : null}
+                                  {snapshot.talliesVisible && questionResult ? (
+                                    <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-surface-3">
+                                      <ResultBar share={Math.min(share, 1)} selected={selected} />
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {snapshot.talliesVisible && questionResult ? (
+                                  <span className="shrink-0 text-right">
+                                    <span className="block font-mono text-lg font-bold tabular-nums text-foreground">
+                                      <AnimatedNumber value={share} format="percent" />
+                                    </span>
+                                    <span className="block font-mono text-xs tabular-nums text-muted-foreground">
+                                      <AnimatedNumber value={count} format="integer" /> answers
+                                    </span>
+                                  </span>
+                                ) : null}
+                              </motion.button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        {question.pickType === "single"
+                          ? "Choose one answer."
+                          : `Choose up to ${question.maxPicks} answers in rank order.`}
+                      </p>
+                    </section>
+                  );
+                })
               )}
             </div>
 
-            <p aria-live="polite" className="sr-only">
-              {hasVoted
-                ? "Your ballot is final and has been submitted."
-                : event.pickType === "top_n"
-                  ? `${selectedIds.length} of up to ${event.maxPicks} picks selected. Order is selection order.`
-                  : selectedIds.length === 1
-                    ? `${chosenNames[0]} selected.`
-                    : "No option selected."}
+            <p aria-live="polite" className="mt-3 text-sm text-muted-foreground">
+              {answeredCount} of {questions.length} questions answered.
             </p>
 
             {!isLoggedIn && canVote && !hasVoted ? (
-              <div className="mt-5 grid gap-3 rounded-lg border border-border bg-surface-1 p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                <div>
-                  <label htmlFor="guest-handle" className="mb-1 block text-sm font-medium">
-                    Social handle
-                  </label>
-                  <input
+              <div className="mt-5 grid gap-3 rounded-xl border border-border bg-surface-1 p-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                <InputGroup className="font-fluid w-full">
+                  <InputField
                     id="guest-handle"
                     name="guestHandle"
-                    type="text"
                     autoComplete="nickname"
                     maxLength={40}
+                    label="Social handle"
                     placeholder="Your Instagram or X handle"
+                    index={0}
                     value={guestHandle}
-                    onChange={(e) => setGuestHandle(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    onChange={setGuestHandle}
+                    error={error?.startsWith("Enter your Instagram") ? error : undefined}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Used as the label on this ballot only.
-                  </p>
-                </div>
+                </InputGroup>
                 <div>
                   <label htmlFor="guest-platform" className="mb-1 block text-sm font-medium">
                     Platform
                   </label>
-                  <select
-                    id="guest-platform"
-                    name="guestPlatform"
-                    value={guestPlatform}
-                    onChange={(e) => setGuestPlatform(e.target.value as "instagram" | "x")}
-                    className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <option value="instagram">Instagram</option>
-                    <option value="x">X</option>
-                  </select>
+                  <Select value={guestPlatform} onValueChange={(value) => setGuestPlatform(value as "instagram" | "x")}>
+                    <SelectTrigger id="guest-platform" placeholder="Choose platform" className="font-fluid min-h-11 w-full" />
+                    <SelectContent>
+                      <SelectItem index={0} value="instagram">Instagram</SelectItem>
+                      <SelectItem index={1} value="x">X</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             ) : null}
 
             {error ? (
-              <p role="alert" className="mt-4 rounded-md border border-border bg-surface-1 p-3 text-sm text-accent">
+              <p role="alert" aria-live="polite" className="mt-4 rounded-md border border-border bg-surface-1 p-3 text-sm text-accent">
                 {error}
               </p>
             ) : null}
@@ -376,33 +456,36 @@ export default function EventDetailClient({
 
           <aside className="lg:pt-0">
             <div className="rounded-xl border border-border bg-surface-1 p-5">
-              <h2 className="text-balance text-lg font-bold">
-                {event.pickType === "top_n" ? "Pick summary" : "Results"}
-              </h2>
+              <h2 className="text-balance text-lg font-bold">Quiz summary</h2>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-muted-foreground">Ballots</dt>
                   <dd className="font-mono font-bold tabular-nums text-foreground">
-                      <AnimatedNumber value={totalBallots} format="integer" />
+                    <AnimatedNumber value={totalBallots} format="integer" />
                   </dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="text-muted-foreground">Pick format</dt>
-                  <dd className="font-medium text-foreground">
-                    {event.pickType === "single" ? "Single choice" : `Top ${event.maxPicks}`}
+                  <dt className="text-muted-foreground">Questions</dt>
+                  <dd className="font-mono font-bold tabular-nums text-foreground">
+                    {new Intl.NumberFormat().format(questions.length)}
                   </dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="text-muted-foreground">Closes</dt>
+                  <dt className="text-muted-foreground">{timeLabel}</dt>
+                  <dd className="text-right font-mono tabular-nums text-foreground">
+                    <time dateTime={timeTarget}>{formatDate(timeTarget)}</time>
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">Countdown</dt>
                   <dd className="font-mono tabular-nums text-foreground">
-                    {dateFormat(event.closesAt)}
+                    <Countdown target={timeTarget} label={timeLabel} />
                   </dd>
                 </div>
               </dl>
-              {event.pickType === "top_n" ? (
+              {questions.some((question) => question.pickType === "top_n") ? (
                 <p className="mt-4 border-t border-border pt-3 text-pretty text-xs leading-5 text-muted-foreground">
-                  Selection percentages show how many ballots included each option.
-                  Final prediction scoring will be defined separately after results are known.
+                  Each question has its own answer format. Top N order is shown on its question.
                 </p>
               ) : null}
             </div>
@@ -417,20 +500,17 @@ export default function EventDetailClient({
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-muted-foreground">
-              {event.pickType === "top_n"
-                ? `${selectedIds.length} selected · tap in order${selectedIds.length ? `: ${chosenNames.join(" → ")}` : ""}`
-                : selectedIds.length === 1
-                  ? `Selected: ${chosenNames[0]}`
-                  : "Choose one option above."}
+              {answeredCount} of {questions.length} questions answered
             </p>
-            <button
+            <Button
               type="button"
+              variant="primary"
               onClick={() => void castVote()}
-              disabled={pending || selectedIds.length === 0 || effectiveClosed}
-              className="rounded-md bg-accent-hover px-5 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-surface-3 disabled:text-muted-foreground"
+              disabled={pending || !allQuestionsAnswered || effectiveClosed}
+              className="font-fluid min-h-11 w-full px-5 sm:w-auto"
             >
               {pending ? "Submitting…" : "Submit final ballot"}
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -441,11 +521,22 @@ export default function EventDetailClient({
           className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background sm:bottom-0"
         >
           <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 text-sm text-foreground sm:px-6">
-            <CheckIcon />
-            <p aria-live="polite">Ballot submitted. Your picks are final and can’t be edited.</p>
+            <span aria-hidden="true">✓</span>
+            <p aria-live="polite">Ballot submitted. Your answers are final and can’t be edited.</p>
           </div>
         </div>
       ) : null}
     </main>
+  );
+}
+
+function LinkBack() {
+  return (
+    <Link
+      href="/discover"
+      className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      ← Discover quizzes
+    </Link>
   );
 }

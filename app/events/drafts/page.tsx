@@ -39,7 +39,7 @@ export default async function DraftsPage() {
           href="/"
           className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          ← All polls
+            ← Discover quizzes
         </Link>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-balance text-3xl font-bold">My drafts</h1>
@@ -47,7 +47,7 @@ export default async function DraftsPage() {
             href="/events/new"
             className="rounded-md bg-accent-hover px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            New poll
+            New quiz
           </Link>
         </div>
 
@@ -55,7 +55,7 @@ export default async function DraftsPage() {
           <div className="mt-6 rounded-xl border border-border bg-surface-1 p-6 text-center sm:p-8">
             <h2 className="text-balance text-xl font-bold">No drafts yet</h2>
             <p className="mx-auto mt-2 max-w-sm text-pretty text-sm leading-5 text-muted-foreground">
-              Start a poll and save it as a draft at any step — it will wait for you here.
+              Start a quiz and save it as a draft — it will wait for you here.
             </p>
           </div>
         ) : (
@@ -67,7 +67,7 @@ export default async function DraftsPage() {
               >
                 <div className="min-w-0">
                   <p className="truncate text-base font-bold text-foreground">
-                    {d.title.trim() === "" ? "Untitled poll" : d.title}
+                    {d.title.trim() === "" ? "Untitled quiz" : d.title}
                   </p>
                   <p className="mt-0.5 font-mono text-xs tabular-nums text-subtle-foreground">
                     Edited{" "}

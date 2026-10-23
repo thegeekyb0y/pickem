@@ -12,12 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownContent,
-  DropdownMenu,
-  DropdownTrigger,
-} from "@/components/ui/dropdown";
-import { MenuItem } from "@/components/ui/menu-item";
 import { closeEvent, deleteDraft } from "@/lib/events/actions";
 
 type ActionMode = "close" | "delete";
@@ -66,35 +60,28 @@ export default function OwnerControls({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownTrigger
-          render={
-            <Button
-              type="button"
-              variant="tertiary"
-              className="font-fluid min-h-11 px-3"
-            >
-              Quiz actions
-            </Button>
-          }
-        />
-        <DropdownContent align="start">
-          {isLive ? (
-            <MenuItem
-              index={0}
-              label="Close quiz early"
-              onSelect={() => openDialog("close")}
-            />
-          ) : null}
-          {isDraft ? (
-            <MenuItem
-              index={isLive ? 1 : 0}
-              label="Delete draft"
-              onSelect={() => openDialog("delete")}
-            />
-          ) : null}
-        </DropdownContent>
-      </DropdownMenu>
+      <div className="flex flex-wrap gap-2">
+        {isLive ? (
+          <Button
+            type="button"
+            variant="tertiary"
+            className="font-fluid min-h-11 px-3"
+            onClick={() => openDialog("close")}
+          >
+            Close quiz early
+          </Button>
+        ) : null}
+        {isDraft ? (
+          <Button
+            type="button"
+            variant="tertiary"
+            className="font-fluid min-h-11 px-3"
+            onClick={() => openDialog("delete")}
+          >
+            Delete draft
+          </Button>
+        ) : null}
+      </div>
 
       <Dialog
         open={dialogOpen}

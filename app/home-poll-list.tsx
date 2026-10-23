@@ -50,18 +50,18 @@ function EmptyListing({ view }: { view: "live" | "closed" }) {
   return (
     <div className="rounded-xl border border-border bg-surface-1 p-6 sm:p-8">
       <h2 className="text-balance text-xl font-bold">
-        {view === "closed" ? "No recently closed polls" : "No live polls right now"}
+        {view === "closed" ? "No recently closed quizzes" : "No live quizzes right now"}
       </h2>
       <p className="mt-2 max-w-xl text-pretty text-sm leading-5 text-muted-foreground">
         {view === "closed"
-          ? "Closed polls from the last 30 days will appear here."
-          : "Discoverable polls will appear here when they’re open or scheduled."}
+          ? "Closed quizzes from the last 30 days will appear here."
+          : "Discoverable quizzes will appear here when they’re open or scheduled."}
       </p>
       <Link
         href={view === "closed" ? "/" : "/events/new"}
         className="mt-4 inline-flex rounded-md bg-accent-hover px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
-        {view === "closed" ? "View live polls" : "Create a poll"}
+        {view === "closed" ? "View live quizzes" : "Create a quiz"}
       </Link>
     </div>
   );
