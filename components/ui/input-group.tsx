@@ -98,6 +98,9 @@ interface InputFieldProps
   labelHidden?: boolean;
   placeholder?: string;
   icon?: IconComponent;
+  /** Optional control rendered inside the field before the input. Interactive
+   *  children keep their own focus instead of focusing the text input. */
+  leading?: ReactNode;
   index: number;
   value: string;
   onChange: (value: string) => void;
@@ -113,6 +116,7 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       labelHidden,
       placeholder,
       icon: Icon,
+      leading,
       index,
       value,
       onChange,
@@ -226,8 +230,9 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
           onMouseDown={(e) => {
             // The old wrapper was one big <label>, so a click anywhere (icon,
             // padding) focused the input. Keep that, without disturbing the
-            // input's own caret placement.
+            // input's own caret placement or an interactive leading control.
             if (e.target === inputRef.current) return;
+            if ((e.target as HTMLElement).closest("[data-input-leading]")) return;
             e.preventDefault();
             inputRef.current?.focus();
           }}
@@ -243,6 +248,11 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
         >
           {/* The icon wakes with the field: muted → foreground and stroke
               1.5 → 2 over 80ms. */}
+          {leading ? (
+            <span data-input-leading className="shrink-0">
+              {leading}
+            </span>
+          ) : null}
           {Icon && (
             <Icon
               size={sizeClasses.icon}
