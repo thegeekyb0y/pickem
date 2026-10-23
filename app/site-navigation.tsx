@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
 
@@ -17,34 +18,39 @@ function NavLink({
   className?: string;
 }) {
   return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
+    <Button
+      asChild
+      variant="ghost"
+      size="default"
       className={cn(
-        "inline-flex min-h-11 items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-        active && "bg-surface-2 text-foreground",
+        "font-fluid min-h-11 rounded-md px-4 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        active && "bg-surface-2 text-foreground hover:bg-surface-2",
         className,
       )}
     >
-      {children}
-    </Link>
+      <Link href={href} aria-current={active ? "page" : undefined}>
+        {children}
+      </Link>
+    </Button>
   );
 }
 
 function SignInAction({ className }: { className?: string }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="default"
       onClick={() => {
         void authClient.signIn.social({ provider: "google", callbackURL: "/profile" });
       }}
       className={cn(
-        "inline-flex min-h-11 items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        "font-fluid min-h-11 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
         className,
       )}
     >
       Sign in
-    </button>
+    </Button>
   );
 }
 

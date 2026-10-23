@@ -1,11 +1,22 @@
 # Quiz builder plan
 
 This document is the implementation handoff for replacing the current one-question
-poll model with quizzes containing independently configured questions. Nothing in
-this plan has been migrated or implemented yet. Keep all quiz work on a feature
-branch, rehearse database changes against local Docker Postgres, and obtain
-explicit approval before any migration against any database. Create a Neon backup
-branch before an approved Neon migration.
+poll model with quizzes containing independently configured questions.
+
+> **Status 2026-10-23:** WIP is committed on `feature/fluid-quiz-builder`
+> (latest local commits; run `git log`), with `backup/wip-quiz-builder` at
+> `f3abaa6` as the safety
+> point. Schema, migration `0006`, the builder, covers, multi-question
+> voting/results, and tests exist but are not production-ready. Migration `0006`
+> has **not** been applied. History is split into logical commits, pushed, and
+> passes lint, typecheck, unit tests, and production build. DB-backed integration
+> tests and migration rehearsal are still pending. See
+> [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for the current state and resume
+> checklist.
+
+Keep all quiz work on a feature branch, rehearse database changes against local
+Docker Postgres, and obtain explicit approval before any migration against any
+database. Create a Neon backup branch before an approved Neon migration.
 
 ## Decisions
 

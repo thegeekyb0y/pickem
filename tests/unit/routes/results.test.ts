@@ -9,7 +9,14 @@ const mocks = vi.hoisted(() => ({
     eventId: "00000000-0000-4000-8000-000000000001",
     version: 3,
     totalBallots: 3,
-    counts: { "00000000-0000-4000-8000-000000000002": 2 },
+    questions: [
+      {
+        questionId: "00000000-0000-4000-8000-000000000003",
+        version: 3,
+        totalBallots: 3,
+        counts: { "00000000-0000-4000-8000-000000000002": 2 },
+      },
+    ],
     serverNow: "2026-10-20T12:00:00.000Z",
     closesAt: "2026-10-20T13:00:00.000Z",
     closed: false,
@@ -38,7 +45,12 @@ vi.mock("@/lib/events/results", () => ({
     ...value,
     version: 0,
     totalBallots: 0,
-    counts: {},
+    questions: value.questions.map((question) => ({
+      ...question,
+      version: 0,
+      totalBallots: 0,
+      counts: {},
+    })),
     talliesVisible: false,
   }),
   getResultSnapshot: vi.fn(async () => mocks.snapshot),
@@ -63,7 +75,6 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
     status: "open",
     visibility: "discoverable",
     passcodeHash: null,
-    pickType: "single",
     opensAt: new Date(now.getTime() - 60_000),
     closesAt: new Date(now.getTime() + 60 * 60 * 1000),
     ...overrides,
@@ -129,7 +140,10 @@ describe("results route guards and cache headers", () => {
     const response = await requestResults();
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(await response.json()).toMatchObject({ talliesVisible: false, counts: {} });
+    expect(await response.json()).toMatchObject({
+      talliesVisible: false,
+      questions: [{ counts: {} }],
+    });
   });
 
   it("does not cache rate-limit failures or invalid IDs", async () => {

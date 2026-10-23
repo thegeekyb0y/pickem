@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Analytics } from "@vercel/analytics/next";
 import { Bricolage_Grotesque, Geist_Mono } from "next/font/google";
+import { fluidInter } from "./fluid-font";
 import { auth } from "@/lib/auth";
 import SiteNavigation from "./site-navigation";
+import { FluidProvider } from "@/lib/fluid-provider";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -20,7 +22,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Pickem",
-  description: "Discover polls, make predictions, and follow the results.",
+  description: "Discover quizzes, answer questions, and follow results.",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
@@ -35,14 +37,16 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${bricolage.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${bricolage.variable} ${geistMono.variable} ${fluidInter.variable} h-full antialiased`}
     >
       <body className="flex min-h-dvh flex-col">
-        <SiteNavigation isSignedIn={isSignedIn} />
-        <div className="flex-1 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">
-          {children}
-        </div>
-        <Analytics />
+        <FluidProvider>
+          <SiteNavigation isSignedIn={isSignedIn} />
+          <div className="flex-1 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">
+            {children}
+          </div>
+          <Analytics />
+        </FluidProvider>
       </body>
     </html>
   );

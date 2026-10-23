@@ -42,6 +42,7 @@ export async function hashPasscode(code: string) {
 export type PollFixture = {
   eventId: string;
   userId: string;
+  questionId: string;
   optionIds: string[];
 };
 
@@ -56,6 +57,7 @@ export async function createPollFixture(
 ): Promise<PollFixture> {
   const eventId = randomUUID();
   const userId = `pickem-e2e-${randomUUID()}`;
+  const questionId = randomUUID();
   const optionIds = [randomUUID(), randomUUID()];
   const email = `${userId}@example.test`;
 
@@ -69,24 +71,27 @@ export async function createPollFixture(
     await tx`
       insert into events (
         id, creator_user_id, title, description, status, visibility, passcode_hash,
-        pick_type, max_picks, opens_at, closes_at
+        opens_at, closes_at
       ) values (
-        ${eventId}, ${userId}, ${`E2E poll ${eventId.slice(0, 8)}`},
+        ${eventId}, ${userId}, ${`E2E quiz ${eventId.slice(0, 8)}`},
         'Playwright fixture', 'open', ${visibility},
         ${passcode ? await hashPasscode(passcode) : null},
-        ${pickType}, ${maxPicks},
         clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'
       )
     `;
+    await tx`
+      insert into questions (id, event_id, prompt, pick_type, max_picks, sort_order)
+      values (${questionId}, ${eventId}, 'Choose a prediction', ${pickType}, ${maxPicks}, 0)
+    `;
     for (const [index, optionId] of optionIds.entries()) {
       await tx`
-        insert into options (id, event_id, label, sort_order)
-        values (${optionId}, ${eventId}, ${`E2E option ${index + 1}`}, ${index})
+        insert into options (id, question_id, label, sort_order)
+        values (${optionId}, ${questionId}, ${`E2E option ${index + 1}`}, ${index})
       `;
     }
   });
 
-  return { eventId, userId, optionIds };
+  return { eventId, userId, questionId, optionIds };
 }
 
 export async function removePollFixture(sql: SqlClient, fixture: PollFixture) {

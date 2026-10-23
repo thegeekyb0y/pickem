@@ -19,11 +19,12 @@ import {
   limitVoteByIp,
 } from "@/lib/rate-limit";
 import {
+  ballotAnswers,
   eventPasscodeUnlocks,
   events,
   options,
+  questions,
   voteGuestSessions,
-  votePicks,
   votes,
 } from "@/db/schema/app";
 import {
@@ -37,9 +38,11 @@ const scrypt = promisify(scryptCallback);
 const MAX_GUEST_HANDLE_LENGTH = 40;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type VoteAnswerInput = { questionId: string; optionIds: string[] };
+
 export type VoteInput = {
   eventId: string;
-  optionIds: string[];
+  answers: VoteAnswerInput[];
   guestHandle?: string;
   guestHandlePlatform?: "instagram" | "x";
 };
@@ -82,7 +85,7 @@ export async function unlockPrivateEvent(
 
   const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
   if (!event || event.visibility !== "passcode" || !event.passcodeHash) {
-    return { ok: false, message: "This private poll is unavailable." };
+    return { ok: false, message: "This private quiz is unavailable." };
   }
   const requestHeaders = await headers();
   if (!(await limitPasscodeAttempt(getClientIp(requestHeaders), eventId))) {
@@ -120,17 +123,28 @@ export async function unlockPrivateEvent(
 }
 
 export async function submitVote(input: VoteInput): Promise<VoteResult> {
-  if (!UUID_PATTERN.test(input.eventId) || !Array.isArray(input.optionIds)) {
-    return { ok: false, reason: "invalid", message: "Choose a valid option." };
+  if (!UUID_PATTERN.test(input.eventId) || !Array.isArray(input.answers)) {
+    return { ok: false, reason: "invalid", message: "Submit valid answers for this quiz." };
   }
-  if (input.optionIds.length < 1 || input.optionIds.length > 8) {
-    return { ok: false, reason: "invalid", message: "Choose between one and eight options." };
+  if (input.answers.length < 1 || input.answers.length > 20) {
+    return { ok: false, reason: "invalid", message: "Answer every quiz question before submitting." };
   }
-  if (input.optionIds.some((id) => typeof id !== "string" || !UUID_PATTERN.test(id))) {
-    return { ok: false, reason: "invalid", message: "One or more selected options are invalid." };
+  if (input.answers.some((answer) =>
+    !answer ||
+    typeof answer.questionId !== "string" ||
+    !UUID_PATTERN.test(answer.questionId) ||
+    !Array.isArray(answer.optionIds) ||
+    answer.optionIds.length < 1 ||
+    answer.optionIds.length > 8 ||
+    answer.optionIds.some((id) => typeof id !== "string" || !UUID_PATTERN.test(id))
+  )) {
+    return { ok: false, reason: "invalid", message: "One or more question answers are invalid." };
   }
-  if (new Set(input.optionIds).size !== input.optionIds.length) {
-    return { ok: false, reason: "invalid", message: "An option can only be selected once." };
+  if (new Set(input.answers.map((answer) => answer.questionId)).size !== input.answers.length) {
+    return { ok: false, reason: "invalid", message: "Answer each question only once." };
+  }
+  if (input.answers.some((answer) => new Set(answer.optionIds).size !== answer.optionIds.length)) {
+    return { ok: false, reason: "invalid", message: "An option can only be selected once per question." };
   }
 
   const requestHeaders = await headers();
@@ -183,18 +197,18 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
 
   try {
     const result = await db.transaction(async (tx): Promise<VoteResult> => {
-      // Voters take a shared lock (FOR KEY SHARE) on the poll, so ballots for
-      // the same poll do not serialize against each other.
+      // Voters take a shared lock (FOR KEY SHARE) on the quiz, so ballots for
+      // the same quiz do not serialize against each other.
       //
       // FOR KEY SHARE is used rather than FOR SHARE because the transaction
-      // may itself UPDATE the poll row (a scheduled poll flipping to open),
+      // may itself UPDATE the quiz row (a scheduled quiz flipping to open),
       // and a NO KEY UPDATE conflicts with FOR SHARE. FOR KEY SHARE only
       // conflicts with FOR UPDATE, so it leaves that update possible while
       // still excluding the owner's exclusive close lock.
       //
       // The owner's close action takes FOR UPDATE, which conflicts with this
       // lock. A ballot therefore either commits before the close starts, or it
-      // waits for the close to commit and is then rejected because the poll is
+      // waits for the close to commit and is then rejected because the quiz is
       // no longer open. The deadline is enforced separately by the final
       // clock check before the transaction commits.
       const [event] = await tx
@@ -203,7 +217,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         .where(eq(events.id, input.eventId))
         .for("key share");
       if (!event) {
-        return { ok: false, reason: "error", message: "This poll could not be found." };
+        return { ok: false, reason: "error", message: "This quiz could not be found." };
       }
 
       const [{ dbNow }] = await tx
@@ -211,7 +225,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         .from(events)
         .where(eq(events.id, event.id));
       if (!isVoteWindowOpen(event, new Date(dbNow))) {
-        return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
+        return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
       }
 
       if (event.visibility === "passcode" && event.passcodeHash) {
@@ -230,31 +244,78 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
               )
           : [];
         if (!unlock) {
-          return { ok: false, reason: "locked", message: "Unlock this poll before voting." };
+          return { ok: false, reason: "locked", message: "Unlock this quiz before voting." };
         }
       }
 
-      if (event.pickType === "single" && input.optionIds.length !== 1) {
-        return { ok: false, reason: "invalid", message: "Choose exactly one option." };
-      }
-      if (event.pickType === "top_n" && input.optionIds.length > event.maxPicks) {
-        return {
-          ok: false,
-          reason: "invalid",
-          message: `Choose no more than ${event.maxPicks} options, in order.`,
+      const questionRows = await tx
+        .select({
+          id: questions.id,
+          pickType: questions.pickType,
+          maxPicks: questions.maxPicks,
+          optionId: options.id,
+        })
+        .from(questions)
+        .leftJoin(options, eq(options.questionId, questions.id))
+        .where(eq(questions.eventId, event.id));
+      const questionRules = new Map<
+        string,
+        { pickType: "single" | "top_n"; maxPicks: number; optionIds: Set<string> }
+      >();
+      for (const row of questionRows) {
+        const rule = questionRules.get(row.id) ?? {
+          pickType: row.pickType,
+          maxPicks: row.maxPicks,
+          optionIds: new Set<string>(),
         };
+        if (row.optionId) rule.optionIds.add(row.optionId);
+        questionRules.set(row.id, rule);
+      }
+
+      if (questionRules.size < 1 || questionRules.size > 20 || input.answers.length !== questionRules.size) {
+        return { ok: false, reason: "invalid", message: "Answer every required question." };
+      }
+
+      const allOptionIds: string[] = [];
+      for (const answer of input.answers) {
+        const rule = questionRules.get(answer.questionId);
+        if (!rule || answer.optionIds.some((optionId) => !rule.optionIds.has(optionId))) {
+          return {
+            ok: false,
+            reason: "invalid",
+            message: "One or more answers do not belong to this question.",
+          };
+        }
+        if (rule.pickType === "single" && answer.optionIds.length !== 1) {
+          return { ok: false, reason: "invalid", message: "Pick one answer for each Pick one question." };
+        }
+        if (rule.pickType === "top_n" && answer.optionIds.length > rule.maxPicks) {
+          return {
+            ok: false,
+            reason: "invalid",
+            message: `Choose no more than ${rule.maxPicks} options for each Pick top N question.`,
+          };
+        }
+        allOptionIds.push(...answer.optionIds);
       }
 
       const selectedOptions = await tx
-        .select({ id: options.id })
+        .select({ id: options.id, questionId: options.questionId })
         .from(options)
-        .where(and(eq(options.eventId, event.id), inArray(options.id, input.optionIds)))
+        .where(inArray(options.id, allOptionIds))
         .for("share");
-      if (selectedOptions.length !== input.optionIds.length) {
+      if (
+        selectedOptions.length !== allOptionIds.length ||
+        selectedOptions.some((option) =>
+          !input.answers.some((answer) =>
+            answer.questionId === option.questionId && answer.optionIds.includes(option.id),
+          ),
+        )
+      ) {
         return {
           ok: false,
           reason: "invalid",
-          message: "One or more selected options are no longer available.",
+          message: "One or more selected options are no longer available for that question.",
         };
       }
 
@@ -286,26 +347,24 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
         .insert(votes)
         .values({
           eventId: event.id,
-          optionId: event.pickType === "single" ? input.optionIds[0] : null,
           voterUserId: userId,
           guestSessionId,
           guestHandle,
           guestHandlePlatform,
-          isSubmitted: event.pickType === "single",
         })
         .returning({ id: votes.id });
 
-      if (event.pickType === "top_n") {
-        await tx.insert(votePicks).values(
-          input.optionIds.map((optionId, index) => ({
+      await tx.insert(ballotAnswers).values(
+        input.answers.flatMap((answer) =>
+          answer.optionIds.map((optionId, index) => ({
             voteId: ballot.id,
             eventId: event.id,
+            questionId: answer.questionId,
             optionId,
             rankPosition: index + 1,
           })),
-        );
-        await tx.update(votes).set({ isSubmitted: true }).where(eq(votes.id, ballot.id));
-      }
+        ),
+      );
 
       if (event.status === "scheduled") {
         await tx.update(events).set({ status: "open" }).where(eq(events.id, event.id));
@@ -327,7 +386,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (error instanceof VoteWindowClosedError) {
-      return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
+      return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
     }
     if (
       message.includes("votes_logged_in_dedupe_unique") ||
@@ -337,11 +396,11 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
       return {
         ok: false,
         reason: "already-voted",
-        message: "A ballot has already been submitted for this poll.",
+        message: "A ballot has already been submitted for this quiz.",
       };
     }
     if (message.includes("Voting is not open")) {
-      return { ok: false, reason: "closed", message: "Voting is not open for this poll." };
+      return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
     }
     return {
       ok: false,

@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { InputField, InputGroup } from "@/components/ui/input-group";
 import { authClient } from "@/lib/auth-client";
 import { updateProfileName } from "@/lib/events/actions";
 
@@ -38,37 +40,37 @@ export default function ProfileSettingsForm({ initialName }: { initialName: stri
   return (
     <div className="space-y-5">
       <form onSubmit={saveName} className="space-y-3">
-        <div>
-          <label htmlFor="profile-name" className="mb-1 block text-sm font-medium">
-            Display name
-          </label>
-          <input
+        <InputGroup className="font-fluid w-full max-w-md">
+          <InputField
             id="profile-name"
             name="name"
             autoComplete="name"
+            label="Display name"
             maxLength={80}
             required
+            index={0}
             value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            onChange={setName}
           />
-        </div>
-        <button
+        </InputGroup>
+        <Button
           type="submit"
+          variant="primary"
           disabled={isPending || name.trim() === initialName}
-          className="min-h-11 rounded-md bg-accent-hover px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-70"
+          className="font-fluid min-h-11 px-4 disabled:cursor-not-allowed"
         >
           {isPending ? "Saving…" : "Save name"}
-        </button>
+        </Button>
       </form>
 
-      <button
+      <Button
         type="button"
+        variant="tertiary"
         onClick={() => void signOut()}
-        className="min-h-11 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="font-fluid min-h-11 px-4"
       >
         Sign out
-      </button>
+      </Button>
 
       <p aria-live="polite" className="min-h-5 text-sm text-muted-foreground">
         {message}

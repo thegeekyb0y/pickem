@@ -12,7 +12,7 @@ function makeSnapshot(overrides: Partial<ResultSnapshot> = {}): ResultSnapshot {
     eventId,
     version: 0,
     totalBallots: 0,
-    counts: {},
+    questions: [],
     serverNow: new Date().toISOString(),
     closesAt: new Date(Date.now() + 60_000).toISOString(),
     closed: false,

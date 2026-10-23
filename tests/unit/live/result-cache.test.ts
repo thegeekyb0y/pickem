@@ -28,7 +28,6 @@ import { getCachedResultSnapshot } from "@/lib/live/result-cache";
 const event = {
   id: "00000000-0000-4000-8000-000000000001",
   status: "open",
-  pickType: "single" as const,
   opensAt: new Date("2026-10-20T11:00:00.000Z"),
   closesAt: new Date("2026-10-20T13:00:00.000Z"),
 };
@@ -38,7 +37,7 @@ function snapshot(closed = false) {
     eventId: event.id,
     version: 1,
     totalBallots: 1,
-    counts: {},
+    questions: [{ questionId: "00000000-0000-4000-8000-000000000003", version: 1, totalBallots: 1, counts: {} }],
     serverNow: "2026-10-20T12:00:00.000Z",
     closesAt: event.closesAt.toISOString(),
     closed,
@@ -66,12 +65,12 @@ describe("getCachedResultSnapshot", () => {
 
     expect(mocks.getResultSnapshot).toHaveBeenCalledTimes(1);
     expect(snapshots.every((value) => value.version === 1)).toBe(true);
-    expect(mocks.setCalls.find((call) => call.key.endsWith(":results:v1"))?.options).toEqual({ ex: 1 });
+    expect(mocks.setCalls.find((call) => call.key.endsWith(":results:v2"))?.options).toEqual({ ex: 1 });
   });
 
   it("serves the stale snapshot while another instance owns the refresh lock", async () => {
     const stale = snapshot();
-    mocks.values.set(`pickem:event:${event.id}:results:v1:stale`, stale);
+    mocks.values.set(`pickem:event:${event.id}:results:v2:stale`, stale);
     mocks.lockResult = null;
 
     expect(await getCachedResultSnapshot(event)).toEqual(stale);
@@ -84,7 +83,7 @@ describe("getCachedResultSnapshot", () => {
 
     await getCachedResultSnapshot(closedEvent);
 
-    expect(mocks.setCalls.find((call) => call.key.endsWith(":results:v1"))?.options).toEqual({
+    expect(mocks.setCalls.find((call) => call.key.endsWith(":results:v2"))?.options).toEqual({
       ex: 86_400,
     });
   });

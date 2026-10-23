@@ -1,34 +1,36 @@
 "use server";
 
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
+import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { headers } from "next/headers";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { put } from "@vercel/blob";
+import sharp from "sharp";
 import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { events, options } from "@/db/schema/app";
+import {
+  events,
+  options,
+  questions,
+  type QuizCoverKind,
+  type QuizCoverMeta,
+} from "@/db/schema/app";
 import { parseUtcInstant } from "@/lib/events/date-time";
+import { getQuizCoverPreset } from "@/lib/quiz/cover-presets";
+import { validateQuizQuestions, type QuizOptionInput } from "@/lib/events/quiz-validation";
+import { limitQuizCoverUpload } from "@/lib/rate-limit";
 
 const scrypt = promisify(scryptCallback);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type Visibility = "unlisted" | "discoverable" | "passcode";
 export type SaveMode = "draft" | "publish";
-export type PickType = "single" | "top_n";
+export type OptionInput = QuizOptionInput;
 
-export type OptionInput = {
-  label: string;
-  description: string;
-  imageSource: "none" | "blob" | "external_url";
-  imageUrl: string;
-  imageBlobKey: string;
-  imageAlt: string;
-};
-
-export type SaveEventInput = {
+export type SaveQuizInput = {
   eventId: string | null;
+  expectedDraftVersion: number | null;
   saveAs: SaveMode;
   draftStep: number;
   title: string;
@@ -37,13 +39,14 @@ export type SaveEventInput = {
   closesAt: string;
   visibility: Visibility;
   passcode: string;
-  pickType: PickType;
-  maxPicks: number;
-  options: OptionInput[];
+  coverKind: QuizCoverKind;
+  coverRef: string | null;
+  coverMeta: QuizCoverMeta | null;
+  questions: ReturnType<typeof validateQuizQuestions>["questions"];
 };
 
-export type SaveEventResult =
-  | { ok: true; eventId: string; status: string }
+export type SaveQuizResult =
+  | { ok: true; eventId: string; status: string; draftVersion: number; hasPasscode: boolean }
   | { ok: false; errors: Record<string, string>; formError: string | null };
 
 export type OwnerActionResult =
@@ -61,65 +64,95 @@ async function hashPasscode(code: string) {
   return `scrypt$${salt}$${derived.toString("hex")}`;
 }
 
-function isBlankOption(o: OptionInput) {
-  return (
-    o.label.trim() === "" &&
-    o.description.trim() === "" &&
-    o.imageUrl.trim() === "" &&
-    o.imageBlobKey.trim() === ""
-  );
-}
+function normalizeCover(
+  kind: QuizCoverKind,
+  rawRef: unknown,
+  rawMeta: unknown,
+): { coverRef: string | null; coverMeta: QuizCoverMeta | null } | null {
+  if (!(["preset", "unsplash", "upload", "none"] as string[]).includes(kind)) {
+    return null;
+  }
+  if (kind === "none") {
+    return rawRef == null ? { coverRef: null, coverMeta: null } : null;
+  }
+  if (typeof rawRef !== "string" || rawRef.trim() === "") return null;
 
-function validHttpUrl(value: string) {
+  if (kind === "preset") {
+    return getQuizCoverPreset(rawRef)
+      ? { coverRef: rawRef, coverMeta: null }
+      : null;
+  }
+
+  if (!rawMeta || typeof rawMeta !== "object") return null;
+  const input = rawMeta as Record<string, unknown>;
+  const focalPoint = input.focalPoint;
+  const normalizedFocalPoint =
+    focalPoint &&
+    typeof focalPoint === "object" &&
+    Number.isFinite((focalPoint as { x?: unknown }).x) &&
+    Number.isFinite((focalPoint as { y?: unknown }).y)
+      ? {
+          x: Math.max(0, Math.min(1, Number((focalPoint as { x: number }).x))),
+          y: Math.max(0, Math.min(1, Number((focalPoint as { y: number }).y))),
+        }
+      : undefined;
+
+  if (kind === "unsplash") {
+    let imageUrl: URL;
+    try {
+      imageUrl = new URL(rawRef);
+    } catch {
+      return null;
+    }
+    const isAllowedImage = imageUrl.protocol === "https:" && imageUrl.hostname === "images.unsplash.com";
+    const photoId = typeof input.photoId === "string" ? input.photoId.slice(0, 160) : "";
+    const photographer = typeof input.photographer === "string" ? input.photographer.slice(0, 120) : "";
+    const photographerUrl = typeof input.photographerUrl === "string" ? input.photographerUrl : "";
+    const photoUrl = typeof input.photoUrl === "string" ? input.photoUrl : "";
+    const downloadLocation = typeof input.downloadLocation === "string" ? input.downloadLocation : "";
+    try {
+      if (
+        !isAllowedImage ||
+        !photoId ||
+        !photographer ||
+        new URL(photographerUrl).hostname !== "unsplash.com" ||
+        new URL(photoUrl).hostname !== "unsplash.com" ||
+        new URL(downloadLocation).hostname !== "api.unsplash.com"
+      ) return null;
+    } catch {
+      return null;
+    }
+    return {
+      coverRef: imageUrl.toString(),
+      coverMeta: {
+        photoId,
+        photographer,
+        photographerUrl,
+        photoUrl,
+        downloadLocation,
+        dominantColor: typeof input.dominantColor === "string" ? input.dominantColor.slice(0, 40) : undefined,
+        focalPoint: normalizedFocalPoint,
+      },
+    };
+  }
+
+  let uploadUrl: URL;
   try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
+    uploadUrl = new URL(rawRef);
   } catch {
-    return false;
+    return null;
   }
+  if (
+    uploadUrl.protocol !== "https:" ||
+    !uploadUrl.hostname.endsWith(".public.blob.vercel-storage.com")
+  ) return null;
+  return {
+    coverRef: uploadUrl.toString(),
+    coverMeta: { focalPoint: normalizedFocalPoint },
+  };
 }
 
-function validateOptions(list: OptionInput[], strict: boolean) {
-  const errors: Record<string, string> = {};
-  const kept = list.filter((o) => !isBlankOption(o));
-
-  if (strict && kept.length < 2) {
-    errors.options = "Add at least two options before publishing.";
-  }
-  if (kept.length > 8) {
-    errors.options = "A poll can have at most eight options.";
-  }
-
-  kept.forEach((o, i) => {
-    if (o.label.trim().length === 0) {
-      errors[`option-${i}-label`] = "Give this option a label, or clear the row.";
-    } else if (o.label.trim().length > 120) {
-      errors[`option-${i}-label`] = "Keep labels to 120 characters or fewer.";
-    }
-    if (o.description.trim().length > 1000) {
-      errors[`option-${i}-description`] =
-        "Keep descriptions to 1000 characters or fewer.";
-    }
-    if (o.imageSource === "external_url") {
-      if (!validHttpUrl(o.imageUrl)) {
-        errors[`option-${i}-image`] = "Paste a valid http(s) image URL.";
-      }
-    }
-    if (o.imageSource === "blob") {
-      if (!validHttpUrl(o.imageUrl) || o.imageBlobKey.trim() === "") {
-        errors[`option-${i}-image`] =
-          "This upload looks incomplete — try uploading again.";
-      }
-    }
-    if (o.imageAlt.trim().length > 180) {
-      errors[`option-${i}-imageAlt`] = "Keep alt text to 180 characters or fewer.";
-    }
-  });
-
-  return { errors, kept };
-}
-
-export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult> {
+export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   if (
     !input ||
     typeof input !== "object" ||
@@ -128,44 +161,42 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
     typeof input.opensAt !== "string" ||
     typeof input.closesAt !== "string" ||
     typeof input.passcode !== "string" ||
-    !Array.isArray(input.options) ||
-    input.options.length > 8 ||
-    input.options.some(
-      (option) =>
-        !option ||
-        typeof option.label !== "string" ||
-        typeof option.description !== "string" ||
-        typeof option.imageUrl !== "string" ||
-        typeof option.imageBlobKey !== "string" ||
-        typeof option.imageAlt !== "string" ||
-        !["none", "blob", "external_url"].includes(option.imageSource),
-    )
+    !Array.isArray(input.questions) ||
+    typeof input.coverKind !== "string" ||
+    (input.coverRef !== null && typeof input.coverRef !== "string")
   ) {
     return {
       ok: false,
       errors: {},
-      formError: "Some submitted poll details were invalid. Review the fields and try again.",
+      formError: "Some quiz details were invalid. Review the fields and try again.",
     };
   }
 
   const userId = await requireUserId();
   if (!userId) {
-    return { ok: false, errors: {}, formError: "Sign in to save this poll." };
+    return { ok: false, errors: {}, formError: "Sign in to save this quiz." };
   }
 
+  if (input.saveAs !== "draft" && input.saveAs !== "publish") {
+    return { ok: false, errors: {}, formError: "Choose whether to save or publish this quiz." };
+  }
   const strict = input.saveAs === "publish";
   const errors: Record<string, string> = {};
 
   const title = input.title.trim();
   const description = input.description.trim();
-  const visibility: Visibility = ["unlisted", "discoverable", "passcode"].includes(
-    input.visibility,
-  )
-    ? input.visibility
-    : "unlisted";
-  const pickType: PickType = input.pickType === "top_n" ? "top_n" : "single";
-  const maxPicks = Number.isInteger(input.maxPicks) ? input.maxPicks : 1;
+  if (!["unlisted", "discoverable", "passcode"].includes(input.visibility)) {
+    errors.visibility = "Choose a valid quiz visibility.";
+  }
+  const visibility = input.visibility as Visibility;
   const draftStep = [1, 2, 3].includes(input.draftStep) ? input.draftStep : 1;
+  const normalizedCover = normalizeCover(input.coverKind, input.coverRef, input.coverMeta);
+  if (!normalizedCover) errors.cover = "Choose a valid quiz cover.";
+  const { errors: questionErrors, questions: normalizedQuestions } = validateQuizQuestions(
+    input.questions,
+    strict,
+  );
+  Object.assign(errors, questionErrors);
 
   let opensAt: Date | null = null;
   let closesAt: Date | null = null;
@@ -179,32 +210,14 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   }
 
   if (strict) {
-    if (title.length === 0) errors.title = "Give your poll a title.";
+    if (title.length === 0) errors.title = "Give your quiz a title.";
     else if (title.length > 160) errors.title = "Keep titles to 160 characters or fewer.";
     if (!opensAt) errors.opensAt = "Choose when voting opens.";
     if (!closesAt) errors.closesAt = "Choose when voting closes.";
-    if (opensAt && closesAt && closesAt <= opensAt) {
-      errors.closesAt = "Closing time must be after opening time.";
-    }
-    if (visibility === "passcode") {
-      if (input.passcode.length < 4) {
-        errors.passcode = "Set a passcode of at least 4 characters.";
-      }
-    }
   }
-
-  const { errors: optionErrors, kept } = validateOptions(input.options, strict);
-  Object.assign(errors, optionErrors);
-
-  if (pickType === "single" && maxPicks !== 1) {
-    errors.maxPicks = "Single-choice polls allow exactly one pick.";
-  }
-  if (pickType === "top_n") {
-    if (maxPicks < 2 || maxPicks > 8) {
-      errors.maxPicks = "Choose between 2 and 8 ranked picks.";
-    } else if (strict && maxPicks > kept.filter((option) => option.label.trim() !== "").length) {
-      errors.maxPicks = "The rank limit can’t exceed the number of labeled options.";
-    }
+  if (title.length > 160) errors.title = "Keep titles to 160 characters or fewer.";
+  if (opensAt && closesAt && closesAt <= opensAt) {
+    errors.closesAt = "Closing time must be after opening time.";
   }
 
   if (Object.keys(errors).length > 0) {
@@ -234,6 +247,18 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
         formError: "This draft isn’t available — it may have been published or removed.",
       };
     }
+    if (
+      !Number.isInteger(input.expectedDraftVersion) ||
+      input.expectedDraftVersion !== existing.draftVersion
+    ) {
+      return {
+        ok: false,
+        errors: {},
+        formError: "This draft changed in another tab. Reload it before saving again.",
+      };
+    }
+  } else if (input.expectedDraftVersion !== null) {
+    return { ok: false, errors: {}, formError: "This new quiz has an invalid draft version." };
   }
 
   const now = new Date();
@@ -245,95 +270,138 @@ export async function saveEvent(input: SaveEventInput): Promise<SaveEventResult>
   if (visibility === "passcode") {
     passcodeHash =
       input.passcode.length >= 4 ? await hashPasscode(input.passcode) : passcodeHash;
-    if (!passcodeHash) {
-      return {
-        ok: false,
-        errors: { passcode: "Set a passcode of at least 4 characters." },
-        formError: null,
-      };
-    }
+    if (!passcodeHash) errors.passcode = "Set a passcode of at least 4 characters.";
   } else {
     passcodeHash = null;
   }
+  if (Object.keys(errors).length > 0) return { ok: false, errors, formError: null };
 
   const status =
     input.saveAs === "publish" ? (finalOpens <= now ? "open" : "scheduled") : "draft";
 
-  const eventId = await db.transaction(async (tx) => {
+  const transactionResult = await db.transaction(async (tx) => {
     let id = input.eventId;
+    let draftVersion = 1;
     if (id) {
+      const [locked] = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.id, id), eq(events.creatorUserId, userId)))
+        .for("update");
+      if (!locked || locked.status !== "draft") {
+        return { ok: false as const, reason: "unavailable" as const };
+      }
+      if (locked.draftVersion !== input.expectedDraftVersion) {
+        return { ok: false as const, reason: "conflict" as const, version: locked.draftVersion };
+      }
+      draftVersion = locked.draftVersion + 1;
       await tx
         .update(events)
         .set({
-          title: title === "" ? "Untitled poll" : title,
+          title: title === "" ? "Untitled quiz" : title,
           description: description === "" ? null : description,
           status,
           visibility,
           passcodeHash,
-          pickType,
-          maxPicks,
           opensAt: finalOpens,
           closesAt: finalCloses,
           draftStep: input.saveAs === "publish" ? null : draftStep,
+          draftVersion,
+          coverKind: input.coverKind,
+          coverRef: normalizedCover!.coverRef,
+          coverMeta: normalizedCover!.coverMeta,
           updatedAt: now,
         })
-        .where(eq(events.id, id));
-      await tx.delete(options).where(eq(options.eventId, id));
+        .where(and(eq(events.id, id), eq(events.draftVersion, locked.draftVersion)));
+      await tx.delete(questions).where(eq(questions.eventId, id));
     } else {
       const [created] = await tx
         .insert(events)
         .values({
           creatorUserId: userId,
-          title: title === "" ? "Untitled poll" : title,
+          title: title === "" ? "Untitled quiz" : title,
           description: description === "" ? null : description,
           status,
           visibility,
           passcodeHash,
-          pickType,
-          maxPicks,
           opensAt: finalOpens,
           closesAt: finalCloses,
           draftStep: input.saveAs === "publish" ? null : draftStep,
+          draftVersion,
+          coverKind: input.coverKind,
+          coverRef: normalizedCover!.coverRef,
+          coverMeta: normalizedCover!.coverMeta,
         })
-        .returning({ id: events.id });
+        .returning({ id: events.id, draftVersion: events.draftVersion });
       id = created.id;
+      draftVersion = created.draftVersion;
     }
 
-    for (let i = 0; i < kept.length; i++) {
-      const o = kept[i];
-      await tx.insert(options).values({
-        eventId: id,
-        label: o.label.trim() === "" ? "Untitled option" : o.label.trim(),
-        description: o.description.trim() === "" ? null : o.description.trim(),
-        imageSource:
-          o.imageSource === "none"
-            ? null
-            : (o.imageSource as "blob" | "external_url"),
-        imageUrl: o.imageUrl.trim() === "" ? null : o.imageUrl.trim(),
-        imageBlobKey: o.imageBlobKey.trim() === "" ? null : o.imageBlobKey.trim(),
-        imageAlt: o.imageAlt.trim() === "" ? null : o.imageAlt.trim(),
-        sortOrder: i,
-      });
+    const questionIds = normalizedQuestions.map(() => randomUUID());
+    await tx.insert(questions).values(
+      normalizedQuestions.map((question, index) => ({
+        id: questionIds[index],
+        eventId: id!,
+        prompt: question.prompt,
+        description: question.description || null,
+        pickType: question.pickType,
+        maxPicks: question.maxPicks,
+        sortOrder: index,
+        updatedAt: now,
+      })),
+    );
+
+    const optionValues = normalizedQuestions.flatMap((question, questionIndex) =>
+      question.options.map((option, sortOrder) => ({
+        questionId: questionIds[questionIndex],
+        label: option.label.trim() || "Untitled option",
+        description: option.description.trim() || null,
+        imageSource: option.imageSource === "none" ? null : option.imageSource,
+        imageUrl: option.imageUrl.trim() || null,
+        imageBlobKey: option.imageBlobKey.trim() || null,
+        imageAlt: option.imageAlt.trim() || null,
+        sortOrder,
+        updatedAt: now,
+      })),
+    );
+    if (optionValues.length > 0) {
+      await tx.insert(options).values(optionValues);
     }
 
-    return id;
+    return { ok: true as const, eventId: id!, status, draftVersion, hasPasscode: Boolean(passcodeHash) };
   });
 
+  if (!transactionResult.ok) {
+    return transactionResult.reason === "conflict"
+      ? {
+          ok: false,
+          errors: {},
+          formError: `This draft changed in another tab (version ${transactionResult.version}). Reload it before saving again.`,
+        }
+      : {
+          ok: false,
+          errors: {},
+          formError: "This draft isn’t available — it may have been published or removed.",
+        };
+  }
+
   revalidatePath("/events/drafts");
+  revalidatePath("/profile");
   if (input.saveAs === "publish") {
     revalidateTag("home:polls", "max");
-    revalidatePath("/");
+    revalidatePath("/discover");
   }
-  return { ok: true, eventId, status };
+  revalidatePath(`/events/${transactionResult.eventId}`);
+  return { ...transactionResult };
 }
 
 export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
   if (!UUID_PATTERN.test(eventId)) {
-    return { ok: false, message: "This poll is unavailable." };
+    return { ok: false, message: "This quiz is unavailable." };
   }
 
   const userId = await requireUserId();
-  if (!userId) return { ok: false, message: "Sign in to manage this poll." };
+  if (!userId) return { ok: false, message: "Sign in to manage this quiz." };
 
   const closed = await db.transaction(async (tx) => {
     const [event] = await tx
@@ -371,7 +439,7 @@ export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
     return true;
   });
 
-  if (!closed) return { ok: false, message: "Only an open poll can be closed early." };
+  if (!closed) return { ok: false, message: "Only an open quiz can be closed early." };
   revalidateTag("home:polls", "max");
   revalidatePath("/");
   revalidatePath(`/events/${eventId}`);
@@ -463,5 +531,57 @@ export async function uploadOptionImage(formData: FormData): Promise<UploadResul
     return { ok: true, url: blob.url, key };
   } catch {
     return { ok: false, error: "Upload failed — try again or paste a URL." };
+  }
+}
+
+export type QuizCoverUploadResult =
+  | { ok: true; url: string }
+  | { ok: false; error: string };
+
+export async function uploadQuizCover(formData: FormData): Promise<QuizCoverUploadResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Sign in to upload a quiz cover." };
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return { ok: false, error: "Quiz cover uploads aren’t configured yet." };
+  }
+  if (!(await limitQuizCoverUpload(userId))) {
+    return { ok: false, error: "Too many cover uploads. Try again later." };
+  }
+
+  const file = formData.get("file");
+  const acceptedTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+  if (!(file instanceof File) || file.size === 0 || !acceptedTypes.has(file.type)) {
+    return { ok: false, error: "Choose a PNG, JPEG, or WebP image." };
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    return { ok: false, error: "Keep the original image under 12 MB." };
+  }
+
+  try {
+    const source = Buffer.from(await file.arrayBuffer());
+    const input = sharp(source, { limitInputPixels: 50_000_000 });
+    const metadata = await input.metadata();
+    if (!metadata.width || !metadata.height || !["png", "jpeg", "webp"].includes(metadata.format ?? "")) {
+      return { ok: false, error: "This image file could not be processed." };
+    }
+
+    // Re-encoding through Sharp applies EXIF orientation, strips metadata, and
+    // produces a responsive web format before the image reaches public Blob.
+    const webp = await sharp(source, { limitInputPixels: 50_000_000 })
+      .rotate()
+      .resize({ width: 2400, height: 1600, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 82, effort: 4 })
+      .toBuffer();
+    if (webp.byteLength > 4 * 1024 * 1024) {
+      return { ok: false, error: "The optimized cover is too large. Choose a smaller image." };
+    }
+
+    const blob = await put(`quiz-covers/${randomUUID()}.webp`, webp, {
+      access: "public",
+      contentType: "image/webp",
+    });
+    return { ok: true, url: blob.url };
+  } catch {
+    return { ok: false, error: "The image could not be processed. Try a different file." };
   }
 }

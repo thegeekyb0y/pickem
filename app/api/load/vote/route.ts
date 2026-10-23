@@ -1,12 +1,27 @@
 import { timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { GUEST_COOKIE } from "@/lib/events/access";
-import { submitVote } from "@/lib/events/voting";
+import { submitVote, type VoteAnswerInput } from "@/lib/events/voting";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function notFound() {
   return Response.json({ error: "Not found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+
+function isVoteAnswers(value: unknown): value is VoteAnswerInput[] {
+  return Array.isArray(value) && value.every((answer: unknown) => {
+    if (!answer || typeof answer !== "object") return false;
+    const candidate = answer as Record<string, unknown>;
+    return (
+      typeof candidate.questionId === "string" &&
+      UUID_PATTERN.test(candidate.questionId) &&
+      Array.isArray(candidate.optionIds) &&
+      candidate.optionIds.length >= 1 &&
+      candidate.optionIds.length <= 8 &&
+      candidate.optionIds.every((id: unknown) => typeof id === "string" && UUID_PATTERN.test(id))
+    );
+  });
 }
 
 export async function POST(request: Request) {
@@ -39,18 +54,17 @@ export async function POST(request: Request) {
     !("eventId" in body) ||
     typeof body.eventId !== "string" ||
     !UUID_PATTERN.test(body.eventId) ||
-    !("optionIds" in body) ||
-    !Array.isArray(body.optionIds) ||
-    body.optionIds.length < 1 ||
-    body.optionIds.length > 8 ||
-    body.optionIds.some((id) => typeof id !== "string" || !UUID_PATTERN.test(id))
+    !("answers" in body) ||
+    !isVoteAnswers(body.answers) ||
+    body.answers.length < 1 ||
+    body.answers.length > 20
   ) {
     return Response.json({ error: "Invalid ballot payload" }, { status: 400 });
   }
 
   const result = await submitVote({
     eventId: body.eventId,
-    optionIds: body.optionIds,
+    answers: body.answers,
     guestHandle: "load-test",
     guestHandlePlatform: "x",
   });

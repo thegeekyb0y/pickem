@@ -9,7 +9,7 @@ const LOCK_TTL_MS = 1_000;
 const localFlights = new Map<string, Promise<ResultSnapshot>>();
 
 function keys(eventId: string) {
-  const root = `pickem:event:${eventId}:results:v1`;
+  const root = `pickem:event:${eventId}:results:v2`;
   return { fresh: root, stale: `${root}:stale`, lock: `${root}:lock` };
 }
 

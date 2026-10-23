@@ -36,6 +36,7 @@ Open <http://localhost:3000>.
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth credentials. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Rate limiting and results cache. |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob, for option images. |
+| `UNSPLASH_ACCESS_KEY` | Server-only Unsplash search and download attribution for quiz covers. |
 | `DATABASE_URL_TEST` | Disposable branch URL used by the test suites. |
 | `ALLOW_TEST_DB_MUTATION` | Must be `1` to let tests write to that branch. |
 | `PRODUCTION_DATABASE_HOST` | Optional. Production hostname only, used by the test guard. |

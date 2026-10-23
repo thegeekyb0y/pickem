@@ -38,7 +38,7 @@ export async function GET(
 
     const access = resolveResultsAccess(event, viewer);
     if (access === "not-found") return privateResponse({ error: "Not found" }, 404);
-    if (access === "locked") return privateResponse({ error: "Unlock this poll first" }, 401);
+    if (access === "locked") return privateResponse({ error: "Unlock this quiz first" }, 401);
 
     const ip = getClientIp(request.headers);
     const requestedClientId = request.headers.get("x-client-id")?.trim() ?? "";

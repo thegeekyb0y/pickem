@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { InputField, InputGroup } from "@/components/ui/input-group";
 import { unlockPrivateEvent } from "@/lib/events/voting";
 
 export default function PasscodeGate({ eventId }: { eventId: string }) {
@@ -24,37 +26,33 @@ export default function PasscodeGate({ eventId }: { eventId: string }) {
   return (
     <main className="min-h-dvh bg-background px-4 py-10 text-foreground">
       <section className="mx-auto w-full max-w-md rounded-xl border border-border bg-surface-1 p-6 sm:p-8">
-        <p className="text-xs font-medium uppercase text-muted-foreground">Private poll</p>
+        <p className="text-xs font-medium text-muted-foreground">Private quiz</p>
         <h1 className="mt-2 text-balance text-2xl font-bold">Enter the passcode</h1>
         <p className="mt-2 text-pretty text-sm leading-5 text-muted-foreground">
-          This poll is passcode-protected. Enter the shared code to continue.
+          This quiz is passcode-protected. Enter the shared code to continue.
         </p>
         <form onSubmit={submit} className="mt-5">
-          <label htmlFor="event-passcode" className="mb-1 block text-sm font-medium">
-            Passcode
-          </label>
-          <input
-            id="event-passcode"
-            type="password"
-            autoComplete="off"
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? "event-passcode-error" : undefined}
-            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          />
-          {error ? (
-            <p id="event-passcode-error" role="alert" className="mt-1 text-sm text-accent">
-              {error}
-            </p>
-          ) : null}
-          <button
+          <InputGroup className="font-fluid w-full">
+            <InputField
+              id="event-passcode"
+              name="passcode"
+              type="password"
+              autoComplete="off"
+              label="Passcode"
+              index={0}
+              value={passcode}
+              onChange={setPasscode}
+              error={error ?? undefined}
+            />
+          </InputGroup>
+          <Button
             type="submit"
+            variant="primary"
             disabled={pending || passcode.length === 0}
-            className="mt-4 w-full rounded-md bg-accent-hover px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
+            className="font-fluid mt-4 min-h-11 w-full"
           >
-            {pending ? "Checking…" : "Unlock poll"}
-          </button>
+            {pending ? "Checking…" : "Unlock quiz"}
+          </Button>
         </form>
       </section>
     </main>

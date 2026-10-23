@@ -1,11 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { events, options, votePicks, votes } from "@/db/schema/app";
+import { ballotAnswers, events, options, questions, votes } from "@/db/schema/app";
 import { profileInitials } from "@/lib/profile";
+import { Badge } from "@/components/ui/badge";
 import SignInButton from "@/app/events/new/_components/sign-in-button";
 import ProfileSettingsForm from "./profile-settings-form";
 
@@ -50,42 +51,45 @@ export default async function ProfilePage() {
       .select({
         id: votes.id,
         eventId: votes.eventId,
-        optionId: votes.optionId,
         createdAt: votes.createdAt,
       })
       .from(votes)
-      .where(and(eq(votes.voterUserId, viewer.id), eq(votes.isSubmitted, true)))
+      .where(eq(votes.voterUserId, viewer.id))
       .orderBy(desc(votes.createdAt)),
   ]);
 
   const eventIds = [...new Set(ballots.map((ballot) => ballot.eventId))];
-  const singleOptionIds = ballots.flatMap((ballot) => ballot.optionId ? [ballot.optionId] : []);
   const ballotIds = ballots.map((ballot) => ballot.id);
 
-  const [pickedEvents, singleOptions, rankedPicks] = await Promise.all([
+  const [pickedEvents, answers] = await Promise.all([
     eventIds.length
       ? db.select({ id: events.id, title: events.title }).from(events).where(inArray(events.id, eventIds))
       : Promise.resolve([]),
-    singleOptionIds.length
-      ? db.select({ id: options.id, label: options.label }).from(options).where(inArray(options.id, singleOptionIds))
-      : Promise.resolve([]),
     ballotIds.length
       ? db
-          .select({ voteId: votePicks.voteId, label: options.label, rank: votePicks.rankPosition })
-          .from(votePicks)
-          .innerJoin(options, eq(votePicks.optionId, options.id))
-          .where(inArray(votePicks.voteId, ballotIds))
-          .orderBy(votePicks.rankPosition)
+          .select({
+            voteId: ballotAnswers.voteId,
+            questionId: questions.id,
+            questionPrompt: questions.prompt,
+            optionLabel: options.label,
+            rank: ballotAnswers.rankPosition,
+          })
+          .from(ballotAnswers)
+          .innerJoin(questions, eq(ballotAnswers.questionId, questions.id))
+          .innerJoin(options, eq(ballotAnswers.optionId, options.id))
+          .where(inArray(ballotAnswers.voteId, ballotIds))
+          .orderBy(ballotAnswers.voteId, questions.sortOrder, ballotAnswers.rankPosition)
       : Promise.resolve([]),
   ]);
 
   const titles = new Map(pickedEvents.map((event) => [event.id, event.title]));
-  const optionLabels = new Map(singleOptions.map((option) => [option.id, option.label]));
-  const picksByBallot = new Map<string, string[]>();
-  for (const pick of rankedPicks) {
-    const current = picksByBallot.get(pick.voteId) ?? [];
-    current.push(pick.label);
-    picksByBallot.set(pick.voteId, current);
+  const answersByBallot = new Map<string, Map<string, { prompt: string; labels: string[] }>>();
+  for (const answer of answers) {
+    const byQuestion = answersByBallot.get(answer.voteId) ?? new Map();
+    const current = byQuestion.get(answer.questionId) ?? { prompt: answer.questionPrompt, labels: [] };
+    current.labels.push(answer.optionLabel);
+    byQuestion.set(answer.questionId, current);
+    answersByBallot.set(answer.voteId, byQuestion);
   }
 
   const quizzes = owned.filter((event) => event.status !== "draft");
@@ -141,9 +145,25 @@ export default async function ProfilePage() {
                 <li key={quiz.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{quiz.title}</p>
-                    <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                      {quiz.status} · Edited {dateFormat.format(quiz.updatedAt)}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge
+                        size="compact"
+                        color={
+                          quiz.status === "open"
+                            ? "green"
+                            : quiz.status === "scheduled"
+                              ? "amber"
+                              : quiz.status === "cancelled"
+                                ? "red"
+                                : "gray"
+                        }
+                      >
+                        {quiz.status}
+                      </Badge>
+                      <p className="font-mono text-xs tabular-nums text-muted-foreground">
+                        Edited {dateFormat.format(quiz.updatedAt)}
+                      </p>
+                    </div>
                   </div>
                   <Link href={`/events/${quiz.id}`} className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm font-medium hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
                     Open
@@ -189,16 +209,17 @@ export default async function ProfilePage() {
           {ballots.length ? (
             <ul className="mt-4 divide-y divide-border">
               {ballots.map((ballot) => {
-                const chosen = ballot.optionId
-                  ? [optionLabels.get(ballot.optionId)].filter((value): value is string => Boolean(value))
-                  : picksByBallot.get(ballot.id) ?? [];
+                const answersForBallot = answersByBallot.get(ballot.id);
+                const summary = answersForBallot
+                  ? [...answersForBallot.values()].map(({ prompt, labels }) => `${prompt}: ${labels.join(", ")}`).join(" · ")
+                  : "Submitted ballot";
                 return (
                   <li key={ballot.id} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                     <div className="min-w-0">
                       <Link href={`/events/${ballot.eventId}`} className="font-medium underline-offset-4 hover:text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
                         {titles.get(ballot.eventId) ?? "Quiz"}
                       </Link>
-                      <p className="mt-1 text-pretty text-sm text-muted-foreground">{chosen.join(" · ") || "Submitted ballot"}</p>
+                      <p className="mt-1 text-pretty text-sm text-muted-foreground">{summary}</p>
                     </div>
                     <time dateTime={ballot.createdAt.toISOString()} className="font-mono text-xs tabular-nums text-subtle-foreground">
                       {dateFormat.format(ballot.createdAt)}

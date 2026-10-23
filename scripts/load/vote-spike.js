@@ -5,7 +5,16 @@ import { loadTestTarget } from "./config.js";
 const target = loadTestTarget();
 const rate = Number(__ENV.VOTES_PER_SECOND || 100);
 const duration = __ENV.DURATION || "60s";
-if (!__ENV.OPTION_ID) throw new Error("OPTION_ID is required for the ballot load test.");
+if (!__ENV.ANSWERS_JSON) throw new Error("ANSWERS_JSON is required for the ballot load test.");
+let answers;
+try {
+  answers = JSON.parse(__ENV.ANSWERS_JSON);
+} catch {
+  throw new Error("ANSWERS_JSON must be a valid quiz answer array.");
+}
+if (!Array.isArray(answers) || answers.length < 1 || answers.length > 20) {
+  throw new Error("ANSWERS_JSON must contain answers for 1 to 20 questions.");
+}
 
 export const options = {
   scenarios: {
@@ -28,7 +37,7 @@ export default function voteSpikeScenario() {
   const uniqueToken = `load-${__VU}-${__ITER}-${Date.now()}`;
   const response = http.post(
     `${target.baseUrl}/api/load/vote`,
-    JSON.stringify({ eventId: target.eventId, optionIds: [__ENV.OPTION_ID] }),
+    JSON.stringify({ eventId: target.eventId, answers }),
     {
       headers: {
         "Content-Type": "application/json",

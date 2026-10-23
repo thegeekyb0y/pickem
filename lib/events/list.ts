@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { events, options, votes } from "@/db/schema/app";
+import { events, questions, votes, type QuizCoverKind, type QuizCoverMeta } from "@/db/schema/app";
 
 export const CLOSING_SOON_MS = 24 * 60 * 60 * 1000;
 export const CLOSED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -32,9 +32,10 @@ export type EventListItem = {
   visibility: string;
   opensAt: Date;
   closesAt: Date;
-  pickType: "single" | "top_n";
-  maxPicks: number;
-  optionCount: number;
+  coverKind: QuizCoverKind;
+  coverRef: string | null;
+  coverMeta: QuizCoverMeta | null;
+  questionCount: number;
   ballotCount: number;
 };
 
@@ -86,14 +87,15 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
       visibility: events.visibility,
       opensAt: events.opensAt,
       closesAt: events.closesAt,
-      pickType: events.pickType,
-      maxPicks: events.maxPicks,
-      optionCount: sql<number>`(
-        select count(*)::int from ${options} where ${options.eventId} = ${events.id}
+      coverKind: events.coverKind,
+      coverRef: events.coverRef,
+      coverMeta: events.coverMeta,
+      questionCount: sql<number>`(
+        select count(*)::int from ${questions} where ${questions.eventId} = ${events.id}
       )`,
       ballotCount: sql<number>`(
         select count(*)::int from ${votes}
-        where ${votes.eventId} = ${events.id} and ${votes.isSubmitted} = true
+        where ${votes.eventId} = ${events.id}
       )`,
     })
     .from(events)
@@ -108,7 +110,7 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
 
   return rows.map((row) => ({
     ...row,
-    optionCount: Number(row.optionCount),
+    questionCount: Number(row.questionCount),
     ballotCount: Number(row.ballotCount),
   }));
 }
@@ -135,7 +137,7 @@ const getCachedDiscoverablePolls = unstable_cache(
       closesAt: row.closesAt.toISOString(),
     }));
   },
-  ["home-discoverable-polls-v1"],
+  ["home-discoverable-quizzes-v2"],
   { tags: ["home:polls"], revalidate: 45 },
 );
 
