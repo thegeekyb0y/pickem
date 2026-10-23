@@ -69,6 +69,7 @@ async function createPoll({
 } = {}) {
   if (!sql) throw new Error("Integration database is not enabled");
   const eventId = crypto.randomUUID();
+  const questionId = crypto.randomUUID();
   const optionIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
   eventIds.push(eventId);
 
@@ -83,22 +84,26 @@ async function createPoll({
     await tx`
       insert into events (
         id, creator_user_id, title, status, visibility, passcode_hash,
-        pick_type, max_picks, opens_at, closes_at
+        opens_at, closes_at
       ) values (
         ${eventId}, ${userId}, 'Integration poll', ${status}, ${visibility},
         ${visibility === "passcode" ? "scrypt$testsalt$testhash" : null},
-        ${pickType}, ${maxPicks}, clock_timestamp() - interval '1 hour',
+        clock_timestamp() - interval '1 hour',
         clock_timestamp() + interval '1 hour'
       )
     `;
+    await tx`
+      insert into questions (id, event_id, prompt, pick_type, max_picks, sort_order)
+      values (${questionId}, ${eventId}, 'Choose a prediction', ${pickType}, ${maxPicks}, 0)
+    `;
     for (const [index, optionId] of optionIds.entries()) {
       await tx`
-        insert into options (id, event_id, label, sort_order)
-        values (${optionId}, ${eventId}, ${`Option ${index + 1}`}, ${index})
+        insert into options (id, question_id, label, sort_order)
+        values (${optionId}, ${questionId}, ${`Option ${index + 1}`}, ${index})
       `;
     }
   });
-  return { eventId, optionIds };
+  return { eventId, questionId, optionIds };
 }
 
 async function countBallots(eventId: string) {
@@ -131,12 +136,18 @@ describe.skipIf(!enabled)("submitVote integration", () => {
   it("rejects invalid single and over-limit top-N ballots before writing", async () => {
     if (!submitVote) return;
     const single = await createPoll();
-    const singleResult = await submitVote({ eventId: single.eventId, optionIds: single.optionIds.slice(0, 2) });
+    const singleResult = await submitVote({
+      eventId: single.eventId,
+      answers: [{ questionId: single.questionId, optionIds: single.optionIds.slice(0, 2) }],
+    });
     expect(singleResult).toMatchObject({ ok: false, reason: "invalid" });
     expect(await countBallots(single.eventId)).toBe(0);
 
     const topN = await createPoll({ pickType: "top_n", maxPicks: 2 });
-    const topNResult = await submitVote({ eventId: topN.eventId, optionIds: topN.optionIds });
+    const topNResult = await submitVote({
+      eventId: topN.eventId,
+      answers: [{ questionId: topN.questionId, optionIds: topN.optionIds }],
+    });
     expect(topNResult).toMatchObject({ ok: false, reason: "invalid" });
     expect(await countBallots(topN.eventId)).toBe(0);
   });
@@ -164,7 +175,10 @@ describe.skipIf(!enabled)("submitVote integration", () => {
     });
 
     await closeLocked;
-    const pendingVote = submitVote({ eventId: poll.eventId, optionIds: [poll.optionIds[0]] });
+    const pendingVote = submitVote({
+      eventId: poll.eventId,
+      answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+    });
     const isBlockedOnClose = await Promise.race([
       pendingVote.then(() => false),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
@@ -179,7 +193,10 @@ describe.skipIf(!enabled)("submitVote integration", () => {
   it("requires an unlock cookie before voting on a passcode poll", async () => {
     if (!submitVote) return;
     const poll = await createPoll({ visibility: "passcode" });
-    expect(await submitVote({ eventId: poll.eventId, optionIds: [poll.optionIds[0]] })).toMatchObject({
+    expect(await submitVote({
+      eventId: poll.eventId,
+      answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+    })).toMatchObject({
       ok: false,
       reason: "locked",
     });
@@ -188,25 +205,28 @@ describe.skipIf(!enabled)("submitVote integration", () => {
   it("keeps snapshot version monotonic by rejecting submitted-ballot deletion", async () => {
     if (!sql || !submitVote || !getResultSnapshot) return;
     const poll = await createPoll();
-    const submitted = await submitVote({ eventId: poll.eventId, optionIds: [poll.optionIds[0]] });
+    const submitted = await submitVote({
+      eventId: poll.eventId,
+      answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+    });
     expect(submitted.ok).toBe(true);
 
     const [row] = await sql`
-      select id, status, pick_type, opens_at, closes_at from events where id = ${poll.eventId}
+      select id, status, opens_at, closes_at from events where id = ${poll.eventId}
     `;
     const event = {
       id: row.id as string,
       status: row.status as string,
-      pickType: row.pick_type as "single" | "top_n",
       opensAt: row.opens_at as Date,
       closesAt: row.closes_at as Date,
     };
     const before = await getResultSnapshot(event);
     expect(before.totalBallots).toBe(1);
     expect(before.version).toBe(1);
+    expect(before.questions[0]?.totalBallots).toBe(1);
 
     await expect(sql`delete from votes where id = ${submitted.ok ? submitted.voteId : ""}`).rejects.toThrow(
-      /Submitted votes cannot be deleted/i,
+      /Submitted ballots are immutable/i,
     );
     const after = await getResultSnapshot(event);
     expect(after.version).toBeGreaterThanOrEqual(before.version);

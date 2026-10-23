@@ -20,9 +20,10 @@ function item(overrides: Partial<EventListItem> = {}): EventListItem {
     visibility: "discoverable",
     opensAt: new Date(now.getTime() - 60_000),
     closesAt: new Date(now.getTime() + 48 * 60 * 60 * 1000),
-    pickType: "single",
-    maxPicks: 1,
-    optionCount: 2,
+    coverKind: "none",
+    coverRef: null,
+    coverMeta: null,
+    questionCount: 1,
     ballotCount: 0,
     ...overrides,
   };

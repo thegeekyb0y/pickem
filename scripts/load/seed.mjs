@@ -1,6 +1,6 @@
 /**
- * Seeds a disposable open poll in the load-test branch so the k6 scenarios have
- * a poll and an option to exercise. Refuses to run against the production
+ * Seeds a disposable open quiz in the load-test branch so the k6 scenarios have
+ * a quiz, question, and options to exercise. Refuses to run against the production
  * database host. Connection strings and credentials are never printed.
  *
  * Usage:
@@ -56,40 +56,50 @@ async function main() {
       const deleted = await sql`
         delete from events
         where title = ${SEED_MARKER}
-        returning id
+        returning creator_user_id
       `;
-      console.log(`Removed ${deleted.length} seeded poll(s).`);
+      for (const row of deleted) {
+        await sql`delete from "user" where id = ${row.creator_user_id}`;
+      }
+      console.log(`Removed ${deleted.length} seeded quiz(es).`);
       return;
     }
 
     const userId = `pickem-load-seed-${randomUUID()}`;
     const eventId = randomUUID();
+    const questionId = randomUUID();
     const optionIds = [randomUUID(), randomUUID()];
 
     await sql`
       insert into "user" (id, name, email, email_verified)
       values (${userId}, 'Pickem Load Seed', ${`${userId}@example.test`}, false)
     `;
-    await sql`
-      insert into events (
-        id, creator_user_id, title, description, status, visibility,
-        pick_type, max_picks, opens_at, closes_at
-      ) values (
-        ${eventId}, ${userId}, ${SEED_MARKER}, 'Disposable poll for load testing',
-        'open', 'discoverable', 'single', 1,
-        clock_timestamp() - interval '1 hour', clock_timestamp() + interval '2 hours'
-      )
-    `;
-    for (const [index, optionId] of optionIds.entries()) {
-      await sql`
-        insert into options (id, event_id, label, sort_order)
-        values (${optionId}, ${eventId}, ${`Load option ${index + 1}`}, ${index})
+    await sql.begin(async (tx) => {
+      await tx`
+        insert into events (
+          id, creator_user_id, title, description, status, visibility,
+          opens_at, closes_at
+        ) values (
+          ${eventId}, ${userId}, ${SEED_MARKER}, 'Disposable quiz for load testing',
+          'open', 'discoverable',
+          clock_timestamp() - interval '1 hour', clock_timestamp() + interval '2 hours'
+        )
       `;
-    }
+      await tx`
+        insert into questions (id, event_id, prompt, pick_type, max_picks, sort_order)
+        values (${questionId}, ${eventId}, 'Load-test question', 'single', 1, 0)
+      `;
+      for (const [index, optionId] of optionIds.entries()) {
+        await tx`
+          insert into options (id, question_id, label, sort_order)
+          values (${optionId}, ${questionId}, ${`Load option ${index + 1}`}, ${index})
+        `;
+      }
+    });
 
-    console.log("Seeded a disposable poll in the load-test branch.");
+    console.log("Seeded a disposable quiz in the load-test branch.");
     console.log(`POLL_ID=${eventId}`);
-    console.log(`OPTION_ID=${optionIds[0]}`);
+    console.log(`ANSWERS_JSON=${JSON.stringify([{ questionId, optionIds: [optionIds[0]] }])}`);
     console.log("Cleanup with: node scripts/load/seed.mjs --cleanup");
   } finally {
     await sql.end();

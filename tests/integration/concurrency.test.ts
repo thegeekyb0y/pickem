@@ -75,6 +75,7 @@ async function createPoll({
 }: { closesInMs?: number } = {}) {
   if (!sql) throw new Error("Integration database is not enabled");
   const eventId = crypto.randomUUID();
+  const questionId = crypto.randomUUID();
   const optionIds = [crypto.randomUUID(), crypto.randomUUID()];
   eventIds.push(eventId);
   userIds.push(creatorUserId);
@@ -84,23 +85,29 @@ async function createPoll({
     values (${creatorUserId}, 'Pickem Concurrency', ${`${creatorUserId}@example.test`}, false)
     on conflict (id) do nothing
   `;
-  await sql`
-    insert into events (
-      id, creator_user_id, title, status, visibility, pick_type, max_picks, opens_at, closes_at
-    ) values (
-      ${eventId}, ${creatorUserId}, 'Concurrency poll', 'open', 'discoverable', 'single', 1,
-      clock_timestamp() - interval '1 hour',
-      clock_timestamp() + (${closesInMs}::text || ' milliseconds')::interval
-    )
-  `;
-  for (const [index, optionId] of optionIds.entries()) {
-    await sql`
-      insert into options (id, event_id, label, sort_order)
-      values (${optionId}, ${eventId}, ${`Option ${index + 1}`}, ${index})
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into events (
+        id, creator_user_id, title, status, visibility, opens_at, closes_at
+      ) values (
+        ${eventId}, ${creatorUserId}, 'Concurrency quiz', 'open', 'discoverable',
+        clock_timestamp() - interval '1 hour',
+        clock_timestamp() + (${closesInMs}::text || ' milliseconds')::interval
+      )
     `;
-  }
+    await tx`
+      insert into questions (id, event_id, prompt, pick_type, max_picks, sort_order)
+      values (${questionId}, ${eventId}, 'Choose an option', 'single', 1, 0)
+    `;
+    for (const [index, optionId] of optionIds.entries()) {
+      await tx`
+        insert into options (id, question_id, label, sort_order)
+        values (${optionId}, ${questionId}, ${`Option ${index + 1}`}, ${index})
+      `;
+    }
+  });
   const [row] = await sql`select closes_at from events where id = ${eventId}`;
-  return { eventId, optionIds, closesAt: new Date(row.closes_at) };
+  return { eventId, questionId, optionIds, closesAt: new Date(row.closes_at) };
 }
 
 /**
@@ -203,7 +210,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       const held = await holdOptionLock(poll.optionIds[0]);
       const first = submitVote({
         eventId: poll.eventId,
-        optionIds: [poll.optionIds[0]],
+        answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
         guestHandle: "first",
         guestHandlePlatform: "x",
       });
@@ -216,7 +223,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
         // each other on the poll row.
         const second = await submitVote({
           eventId: poll.eventId,
-          optionIds: [poll.optionIds[1]],
+          answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[1]] }],
           guestHandle: "second",
           guestHandlePlatform: "x",
         });
@@ -247,7 +254,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       const held = await holdOptionLock(poll.optionIds[0]);
       const ballot = submitVote({
         eventId: poll.eventId,
-        optionIds: [poll.optionIds[0]],
+        answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
         guestHandle: "inflight",
         guestHandlePlatform: "x",
       });
@@ -292,7 +299,7 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
       const held = await holdOptionLock(poll.optionIds[0]);
       const ballot = submitVote({
         eventId: poll.eventId,
-        optionIds: [poll.optionIds[0]],
+        answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
         guestHandle: "late",
         guestHandlePlatform: "x",
       });
