@@ -87,7 +87,7 @@ export default function QuizCoverPicker({
     <section aria-labelledby="quiz-cover-heading" className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="quiz-cover-heading" className="text-base font-semibold text-foreground">
+          <h2 id="quiz-cover-heading" className="text-balance text-base font-semibold text-foreground">
             Cover image
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ export default function QuizCoverPicker({
           {hasImage ? (
             <fieldset className="mt-3 min-w-0 space-y-2">
               <legend className="text-xs font-medium text-foreground">Focal point</legend>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-pretty text-xs text-muted-foreground">
                 Choose the part to keep visible when the image is cropped.
               </p>
               <label className="grid grid-cols-[4.5rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-xs text-muted-foreground">
@@ -169,7 +169,7 @@ export default function QuizCoverPicker({
           ) : null}
 
           {value.kind === "unsplash" ? (
-            <p className="mt-3 text-xs text-muted-foreground">
+            <p className="mt-3 text-pretty text-xs text-muted-foreground">
               This poll uses a legacy Unsplash cover. Choose a preset or upload an image to
               replace it.
             </p>
@@ -196,11 +196,11 @@ export default function QuizCoverPicker({
                     type="button"
                     aria-pressed={selectedPreset?.id === preset.id}
                     onClick={() => onChange({ kind: "preset", ref: preset.id, meta: null })}
-                    className="group w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     <span
                       aria-hidden="true"
-                      className="block aspect-[3/1] rounded-lg border border-border transition-opacity duration-160 group-hover:opacity-90"
+                      className="block aspect-[3/1] rounded-lg border border-border"
                       style={{ background: preset.background }}
                     />
                     <span className="mt-1 block text-xs font-medium text-foreground">
