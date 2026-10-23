@@ -36,8 +36,10 @@ Last updated: 2026-10-23.
   the stable autosave status surface, and safer publish/save error copy.
 - Migration `drizzle/0006_expand_quiz_questions.sql` is applied to Neon
   production. The legacy model was backfilled into questions, options, and
-  ballot answers. Keep `0007` separate and require a fresh production
-  create/vote smoke test plus a Neon backup branch first.
+  ballot answers. Migration `0007` is applied to production and replaces the
+  stale question-guard trigger whose `event_id` variable collided with
+  `votes.event_id`; the planned contract migration is now `0008` and still needs
+  a fresh production create/vote smoke test plus a Neon backup branch.
 - Local test container `pickem-test-pg` is running on port `55432`; integration
   and e2e suites point at it through `DATABASE_URL_TEST`.
 
@@ -181,7 +183,9 @@ only) has its own migration gate.
   including the new `save-quiz` draft/publish regression.
 - Migration `0006` passed local rehearsal against `pickem-test-pg`: migrations
   `0000`–`0005`, legacy seed data, then `drizzle-kit migrate` for `0006`.
-  It is now applied to Neon production; `0007` is still pending.
+  It is applied to Neon production. The old production trigger function kept an
+  `event_id` variable because `0006` was edited after being applied; `0007`
+  forwards the corrected `quiz_id` definition without rewriting history.
 - Playwright e2e: 4 tests pass against the local dev server and test database.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
@@ -216,7 +220,7 @@ only) has its own migration gate.
 3. **Cover redesign.** Replace Unsplash with owner-supplied preset/pattern
    artwork and custom uploads, use a compact thumbnail editor, and add cropping
    that persists crop/focal data in `cover_meta`.
-4. **Migration `0007` contract.** Drop legacy `vote_picks`, `votes.option_id` /
+4. **Migration `0008` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
    only after a production create/vote smoke test. Keep it separate from UI work
    and reconcile the missing Drizzle snapshots first.

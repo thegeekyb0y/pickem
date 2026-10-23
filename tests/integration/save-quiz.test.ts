@@ -58,7 +58,7 @@ describe.skipIf(!enabled)("saveQuiz", () => {
     await sql.end();
   });
 
-  it("creates a draft and publishes it without timestamp constraint failures", async () => {
+  it("creates, updates, and publishes a draft without trigger or timestamp failures", async () => {
     if (!sql || !saveQuiz) throw new Error("Integration database is not enabled");
 
     const opensAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -132,12 +132,30 @@ describe.skipIf(!enabled)("saveQuiz", () => {
       );
     }
 
-    const published = await saveQuiz({
+    const updated = await saveQuiz({
       ...baseInput,
       eventId: draft.eventId,
       expectedDraftVersion: draft.draftVersion,
+      saveAs: "draft",
+      draftStep: 2,
+      title: "Timestamp regression poll updated",
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+
+    const [storedUpdated] = await sql`
+      select status, draft_version from events where id = ${updated.eventId}
+    `;
+    expect(storedUpdated.status).toBe("draft");
+    expect(storedUpdated.draft_version).toBe(2);
+
+    const published = await saveQuiz({
+      ...baseInput,
+      eventId: updated.eventId,
+      expectedDraftVersion: updated.draftVersion,
       saveAs: "publish",
       draftStep: 3,
+      title: "Timestamp regression poll updated",
     });
     expect(published.ok).toBe(true);
     if (!published.ok) return;
@@ -146,6 +164,6 @@ describe.skipIf(!enabled)("saveQuiz", () => {
       select status, draft_version from events where id = ${published.eventId}
     `;
     expect(storedPublished.status).toBe("scheduled");
-    expect(storedPublished.draft_version).toBe(2);
+    expect(storedPublished.draft_version).toBe(3);
   });
 });

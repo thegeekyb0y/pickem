@@ -5,9 +5,12 @@ poll model with quizzes containing independently configured questions.
 
 > **Status 2026-10-23:** PRs #1 and #2 are merged into `origin/main`;
 > production tracks `main` and contains the multi-question builder. Migration
-> `0006` is applied to Neon production. Phase 1 reliability work is on
-> `fix/draft-save-reliability` and passes lint, typecheck, 66 unit tests, 16
-> integration tests, and production build. It fixes the
+> `0006` is applied to Neon production. Migration `0007` is applied and replaces
+> the stale production question-guard trigger whose PL/pgSQL `event_id` variable
+> collided with `votes.event_id`; the planned contract migration is now `0008`.
+> Phase 1 reliability work is on `fix/draft-save-reliability` and passes lint,
+> typecheck, 66 unit tests, 16 integration tests, and production build. It fixes
+> the
 > question/option timestamp constraint failure that blocked every draft save and
 > publish, syncs the draft URL on first save, replaces the flickering error
 > banner with a stable status surface, and stops repeated autosave retries after
@@ -82,7 +85,7 @@ Defer cover wireframe radii and aspect ratio until the design pass.
 
 No compatibility validator is needed because there are no real users. Migration
 1 expands and backfills while the current code is still deployed. Deploy the new
-code after migration 1. Migration `0007` contracts the legacy model after deployment.
+code after migration 1. Migration `0008` contracts the legacy model after deployment.
 Backfill one question for every existing event, copying its current pick type
 and maximum; attach its existing options to that question. A legacy prompt can
 be seeded from the event title and reviewed as part of backfill rehearsal.
@@ -198,11 +201,11 @@ it read; update conditionally and increment on success, returning a conflict on
 stale versions. Live result snapshots are per question and carry the same
 monotonic version gate so clients discard stale/out-of-order data.
 
-### Deploy and migration `0007`: contract
+### Deploy and migration `0008`: contract
 
 Deploy the new application after migration 1. Do not add a dual-schema or legacy
 compatibility validator. Once new code is live and the rehearsal confirms all
-reads/writes use the new model, `0007` removes only superseded structures.
+reads/writes use the new model, `0008` removes only superseded structures.
 Illustrative contract SQL:
 
 ```sql
@@ -223,7 +226,7 @@ Exact legacy constraint/trigger names must be inspected in the rehearsal and
 removed only after confirming no new-code dependency. Retain the event-level
 `votes` row as the one ballot/identity row per quiz; `ballot_answers` contains
 the per-question selected options. Remove/recreate triggers and FKs transaction-
-safely according to the final schema. `0007` must not discard event
+safely according to the final schema. `0008` must not discard event
 identity, voter identity/tombstones, timestamps, or any backfilled answer.
 
 ## Ordered commit-sized work and acceptance tests
@@ -285,7 +288,7 @@ routes lazy-load it. Commit this independently while on `main`.
    open quizzes are no longer active/discoverable, sessions are revoked, and
    retries are idempotent. Do not implement before the rest of quiz work.
 
-After migration 1, deploy new code; `0007` is a separately reviewed,
+After migration 1, deploy new code; `0008` is a separately reviewed,
 approved contract step. Do not combine either migration with the UI commits.
 
 ## Schema changes (separate from application commits)
@@ -316,5 +319,5 @@ approved contract step. Do not combine either migration with the UI commits.
   crop storage shape in `cover_meta` (rect vs focal point); upload size cap and
   rate limits; exact draft-version scope (whole poll vs per-question); whether
   answered count means questions with at least one selection or fully validated
-  responses; and the approved Neon backup/migration procedure for `0007`.
+  responses; and the approved Neon backup/migration procedure for `0008`.
   Cover wireframe radii/aspect ratio intentionally remain deferred.
