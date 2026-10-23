@@ -5,12 +5,12 @@ poll model with quizzes containing independently configured questions.
 
 > **Status 2026-10-23:** WIP is committed on `feature/fluid-quiz-builder`
 > (latest local commits; run `git log`), with `backup/wip-quiz-builder` at
-> `f3abaa6` as the safety
-> point. Schema, migration `0006`, the builder, covers, multi-question
-> voting/results, and tests exist but are not production-ready. Migration `0006`
-> has **not** been applied. History is split into logical commits, pushed, and
-> passes lint, typecheck, unit tests, and production build. DB-backed integration
-> tests and migration rehearsal are still pending. See
+> `f3abaa6` as the safety point. Schema, migration `0006`, the builder, covers,
+> multi-question voting/results, and tests exist but are not production-ready.
+> Migration `0006` has been rehearsed on local Docker Postgres only and has
+> **not** been applied to Neon. History is split into logical commits and pushed;
+> lint, typecheck, 66 unit tests, 15 integration tests, 4 Playwright e2e tests,
+> and production build pass. See
 > [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) for the current state and resume
 > checklist.
 

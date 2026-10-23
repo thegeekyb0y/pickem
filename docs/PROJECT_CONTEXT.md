@@ -32,11 +32,13 @@ Last updated: 2026-10-23.
 - The feature branch is ahead of local `main`; run `git log` for the exact count.
 - The feature branch is pushed. A draft PR still needs to be created because the
   GitHub CLI is not installed/authenticated.
-- Tracked working tree is clean. The accidental `-files drizzle` artifact and
-  the temporary `.npmrc` have been removed.
-- Migration `drizzle/0006_expand_quiz_questions.sql` exists but has not been
-  applied anywhere.
-- Docker/Postgres is stopped; no database access has been performed.
+- Tracked working tree has uncommitted follow-up fixes from the local migration
+  rehearsal. The accidental `-files drizzle` artifact and temporary `.npmrc`
+  remain removed.
+- Migration `drizzle/0006_expand_quiz_questions.sql` has been rehearsed on local
+  Docker Postgres only. It has **not** been applied to Neon or production.
+- Local test container `pickem-test-pg` is running on port `55432`; integration
+  and e2e suites point at it through `DATABASE_URL_TEST`.
 
 ## Commit map
 
@@ -153,8 +155,10 @@ only) has its own migration gate.
   Fluid owner actions with confirmation dialogs.
 - WIP schema: `questions`, `options.question_id`, `ballot_answers`, cover
   fields, `draftVersion`, and updated relations.
-- WIP migration `0006`: expand/backfill, deferrable question/option ordering,
-  question-level triggers, ballot immutability/validation, caps.
+- Migration `0006`: expand/backfill, deferrable question/option ordering,
+  question-level triggers, ballot immutability/validation, caps. Rehearsed
+  locally with legacy single-choice and Top-N fixtures; backfill produced one
+  question per legacy event and three `ballot_answers` rows.
 - WIP quiz builder: stacked questions, independent pick types, drag/up-down
   reorder, duplicate/delete confirmation, autosave with version conflicts.
 - WIP cover flow: presets, Unsplash search route/cache/credit, client image
@@ -164,12 +168,20 @@ only) has its own migration gate.
 - WIP tests and load scripts: quiz validation, quiz integrity, date picker,
   updated voting/concurrency/results tests and request payloads.
 
-## Work stopped mid-way
+## Rehearsal and test status
 
 - Lint, typecheck, unit tests, and production build pass on the split branch.
   Unit tests: 13 files / 66 tests.
-- Migration `0006` is unapplied and unrehearsed. Integration/e2e database tests
-  have not run.
+- Migration `0006` passed local rehearsal against `pickem-test-pg`: migrations
+  `0000`–`0005`, legacy seed data, then `drizzle-kit migrate` for `0006`.
+  `drizzle.__drizzle_migrations` has seven rows; no Neon database was touched.
+- Integration tests: 3 files / 15 tests pass with `ALLOW_TEST_DB_MUTATION=1`.
+- Playwright e2e: 4 tests pass against the local dev server and test database.
+- Rehearsal found and fixed: question-level per-question ballot totals being
+  overwritten by option rows, wrapped Drizzle/Postgres errors losing the
+  “closed” mapping, ambiguous PL/pgSQL `event_id` variable in a trigger, a
+  Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, and
+  an invalid `Intl.DateTimeFormat` option plus locale hydration mismatch.
 - History is split into logical commits and pushed. A draft PR still needs to be
   created manually because `gh` is unavailable.
 - User-facing owner copy now says quiz; identifiers such as `home:polls` and
@@ -189,10 +201,9 @@ only) has its own migration gate.
 
 1. **Open the draft PR.** GitHub CLI is unavailable, so use the compare URL and
    create the PR as a draft with the migration warning in the description.
-2. **Migration rehearsal.** Ask before starting Docker/Postgres or touching any
-   database. Rehearse `0006` on local Postgres, verify backfill counts and every
-   trigger, then create a Neon backup branch before any approved Neon migration.
-   Run integration/e2e tests against the disposable database.
+2. **Neon migration approval.** Local rehearsal is complete. Before touching
+   Neon, obtain explicit approval and create a Neon backup branch; then apply
+   `0006` and deploy the new code immediately after it.
 3. **Migration 2 contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
    only after the new model is live and proven. Keep it separate from UI work.
