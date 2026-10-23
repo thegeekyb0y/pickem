@@ -49,6 +49,11 @@ export type SaveQuizResult =
   | { ok: true; eventId: string; status: string; draftVersion: number; hasPasscode: boolean }
   | { ok: false; errors: Record<string, string>; formError: string | null };
 
+type SaveQuizTransactionResult =
+  | Extract<SaveQuizResult, { ok: true }>
+  | { ok: false; reason: "unavailable" }
+  | { ok: false; reason: "conflict"; version: number };
+
 export type OwnerActionResult =
   | { ok: true }
   | { ok: false; message: string };
@@ -279,97 +284,119 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   const status =
     input.saveAs === "publish" ? (finalOpens <= now ? "open" : "scheduled") : "draft";
 
-  const transactionResult = await db.transaction(async (tx) => {
-    let id = input.eventId;
-    let draftVersion = 1;
-    if (id) {
-      const [locked] = await tx
-        .select()
-        .from(events)
-        .where(and(eq(events.id, id), eq(events.creatorUserId, userId)))
-        .for("update");
-      if (!locked || locked.status !== "draft") {
-        return { ok: false as const, reason: "unavailable" as const };
+  let transactionResult: SaveQuizTransactionResult;
+  try {
+    transactionResult = await db.transaction(async (tx) => {
+      let id = input.eventId;
+      let draftVersion = 1;
+      if (id) {
+        const [locked] = await tx
+          .select()
+          .from(events)
+          .where(and(eq(events.id, id), eq(events.creatorUserId, userId)))
+          .for("update");
+        if (!locked || locked.status !== "draft") {
+          return { ok: false as const, reason: "unavailable" as const };
+        }
+        if (locked.draftVersion !== input.expectedDraftVersion) {
+          return { ok: false as const, reason: "conflict" as const, version: locked.draftVersion };
+        }
+        draftVersion = locked.draftVersion + 1;
+        await tx
+          .update(events)
+          .set({
+            title: title === "" ? "Untitled quiz" : title,
+            description: description === "" ? null : description,
+            status,
+            visibility,
+            passcodeHash,
+            opensAt: finalOpens,
+            closesAt: finalCloses,
+            draftStep: input.saveAs === "publish" ? null : draftStep,
+            draftVersion,
+            coverKind: input.coverKind,
+            coverRef: normalizedCover!.coverRef,
+            coverMeta: normalizedCover!.coverMeta,
+            updatedAt: now,
+          })
+          .where(and(eq(events.id, id), eq(events.draftVersion, locked.draftVersion)));
+        await tx.delete(questions).where(eq(questions.eventId, id));
+      } else {
+        const [created] = await tx
+          .insert(events)
+          .values({
+            creatorUserId: userId,
+            title: title === "" ? "Untitled quiz" : title,
+            description: description === "" ? null : description,
+            status,
+            visibility,
+            passcodeHash,
+            opensAt: finalOpens,
+            closesAt: finalCloses,
+            draftStep: input.saveAs === "publish" ? null : draftStep,
+            draftVersion,
+            coverKind: input.coverKind,
+            coverRef: normalizedCover!.coverRef,
+            coverMeta: normalizedCover!.coverMeta,
+          })
+          .returning({ id: events.id, draftVersion: events.draftVersion });
+        id = created.id;
+        draftVersion = created.draftVersion;
       }
-      if (locked.draftVersion !== input.expectedDraftVersion) {
-        return { ok: false as const, reason: "conflict" as const, version: locked.draftVersion };
-      }
-      draftVersion = locked.draftVersion + 1;
-      await tx
-        .update(events)
-        .set({
-          title: title === "" ? "Untitled quiz" : title,
-          description: description === "" ? null : description,
-          status,
-          visibility,
-          passcodeHash,
-          opensAt: finalOpens,
-          closesAt: finalCloses,
-          draftStep: input.saveAs === "publish" ? null : draftStep,
-          draftVersion,
-          coverKind: input.coverKind,
-          coverRef: normalizedCover!.coverRef,
-          coverMeta: normalizedCover!.coverMeta,
-          updatedAt: now,
-        })
-        .where(and(eq(events.id, id), eq(events.draftVersion, locked.draftVersion)));
-      await tx.delete(questions).where(eq(questions.eventId, id));
-    } else {
-      const [created] = await tx
-        .insert(events)
-        .values({
-          creatorUserId: userId,
-          title: title === "" ? "Untitled quiz" : title,
-          description: description === "" ? null : description,
-          status,
-          visibility,
-          passcodeHash,
-          opensAt: finalOpens,
-          closesAt: finalCloses,
-          draftStep: input.saveAs === "publish" ? null : draftStep,
-          draftVersion,
-          coverKind: input.coverKind,
-          coverRef: normalizedCover!.coverRef,
-          coverMeta: normalizedCover!.coverMeta,
-        })
-        .returning({ id: events.id, draftVersion: events.draftVersion });
-      id = created.id;
-      draftVersion = created.draftVersion;
-    }
 
-    const questionIds = normalizedQuestions.map(() => randomUUID());
-    await tx.insert(questions).values(
-      normalizedQuestions.map((question, index) => ({
-        id: questionIds[index],
+      const questionIds = normalizedQuestions.map(() => randomUUID());
+      await tx.insert(questions).values(
+        normalizedQuestions.map((question, index) => ({
+          id: questionIds[index],
+          eventId: id!,
+          prompt: question.prompt,
+          description: question.description || null,
+          pickType: question.pickType,
+          maxPicks: question.maxPicks,
+          sortOrder: index,
+        })),
+      );
+
+      const optionValues = normalizedQuestions.flatMap((question, questionIndex) =>
+        question.options.map((option, sortOrder) => ({
+          questionId: questionIds[questionIndex],
+          label: option.label.trim() || "Untitled option",
+          description: option.description.trim() || null,
+          imageSource: option.imageSource === "none" ? null : option.imageSource,
+          imageUrl: option.imageUrl.trim() || null,
+          imageBlobKey: option.imageBlobKey.trim() || null,
+          imageAlt: option.imageAlt.trim() || null,
+          sortOrder,
+        })),
+      );
+      if (optionValues.length > 0) {
+        await tx.insert(options).values(optionValues);
+      }
+
+      return {
+        ok: true as const,
         eventId: id!,
-        prompt: question.prompt,
-        description: question.description || null,
-        pickType: question.pickType,
-        maxPicks: question.maxPicks,
-        sortOrder: index,
-        updatedAt: now,
-      })),
-    );
-
-    const optionValues = normalizedQuestions.flatMap((question, questionIndex) =>
-      question.options.map((option, sortOrder) => ({
-        questionId: questionIds[questionIndex],
-        label: option.label.trim() || "Untitled option",
-        description: option.description.trim() || null,
-        imageSource: option.imageSource === "none" ? null : option.imageSource,
-        imageUrl: option.imageUrl.trim() || null,
-        imageBlobKey: option.imageBlobKey.trim() || null,
-        imageAlt: option.imageAlt.trim() || null,
-        sortOrder,
-        updatedAt: now,
-      })),
-    );
-    if (optionValues.length > 0) {
-      await tx.insert(options).values(optionValues);
-    }
-
-    return { ok: true as const, eventId: id!, status, draftVersion, hasPasscode: Boolean(passcodeHash) };
-  });
+        status,
+        draftVersion,
+        hasPasscode: Boolean(passcodeHash),
+      };
+    });
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    console.error("saveQuiz transaction failed", {
+      saveAs: input.saveAs,
+      eventId: input.eventId,
+      message: cause instanceof Error ? cause.message : "Unexpected server error",
+    });
+    return {
+      ok: false,
+      errors: {},
+      formError:
+        input.saveAs === "publish"
+          ? "Couldn’t publish. Your edits are still here. Try again."
+          : "Couldn’t save this draft. Your edits are still here. Try again.",
+    };
+  }
 
   if (!transactionResult.ok) {
     return transactionResult.reason === "conflict"
