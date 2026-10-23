@@ -156,19 +156,19 @@ FOR EACH ROW EXECUTE FUNCTION enforce_question_option_cap();--> statement-breakp
 CREATE OR REPLACE FUNCTION prevent_mutating_voted_question()
 RETURNS trigger AS $$
 DECLARE
-  event_id uuid;
+  quiz_id uuid;
   has_ballots boolean;
 BEGIN
   IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
     RETURN OLD;
   END IF;
   IF TG_OP = 'DELETE' THEN
-    event_id := OLD."event_id";
+    quiz_id := OLD."event_id";
   ELSE
-    event_id := NEW."event_id";
+    quiz_id := NEW."event_id";
   END IF;
-  PERFORM 1 FROM "events" WHERE "id" = event_id FOR UPDATE;
-  SELECT EXISTS (SELECT 1 FROM "votes" WHERE "votes"."event_id" = event_id)
+  PERFORM 1 FROM "events" WHERE "id" = quiz_id FOR UPDATE;
+  SELECT EXISTS (SELECT 1 FROM "votes" WHERE "votes"."event_id" = quiz_id)
     INTO has_ballots;
 
   IF has_ballots THEN
