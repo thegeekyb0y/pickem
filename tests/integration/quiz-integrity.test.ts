@@ -25,7 +25,10 @@ type QuestionSeed = {
   options?: number;
 };
 
-async function createQuiz(questionSeeds: QuestionSeed[] = [{ options: 2 }]) {
+async function createQuiz(
+  questionSeeds: QuestionSeed[] = [{ options: 2 }],
+  { status = "open" }: { status?: "draft" | "open" } = {},
+) {
   if (!sql) throw new Error("Integration database is not enabled");
   const eventId = crypto.randomUUID();
   const creatorId = `quiz-owner-${crypto.randomUUID()}`;
@@ -44,7 +47,7 @@ async function createQuiz(questionSeeds: QuestionSeed[] = [{ options: 2 }]) {
     await tx`
       insert into events (id, creator_user_id, title, status, visibility, opens_at, closes_at)
       values (
-        ${eventId}, ${creatorId}, 'Integrity quiz', 'open', 'unlisted',
+        ${eventId}, ${creatorId}, 'Integrity quiz', ${status}, 'unlisted',
         clock_timestamp() - interval '1 hour', clock_timestamp() + interval '1 hour'
       )
     `;
@@ -89,7 +92,7 @@ describe.skipIf(!enabled)("multi-question database integrity triggers", () => {
 
   it("requires a prompt and 2–8 options on each published question", async () => {
     if (!sql) return;
-    const quiz = await createQuiz([{ prompt: "", options: 1 }]);
+    const quiz = await createQuiz([{ prompt: "", options: 1 }], { status: "draft" });
     await expect(sql`
       update events set status = 'closed' where id = ${quiz.eventId}
     `).rejects.toThrow(/question|option/i);
@@ -97,7 +100,10 @@ describe.skipIf(!enabled)("multi-question database integrity triggers", () => {
 
   it("rejects a Top N maximum larger than the question's option count", async () => {
     if (!sql) return;
-    const quiz = await createQuiz([{ prompt: "Rank", pickType: "top_n", maxPicks: 3, options: 2 }]);
+    const quiz = await createQuiz(
+      [{ prompt: "Rank", pickType: "top_n", maxPicks: 3, options: 2 }],
+      { status: "draft" },
+    );
     await expect(sql`
       update events set status = 'closed' where id = ${quiz.eventId}
     `).rejects.toThrow(/rank limit/i);

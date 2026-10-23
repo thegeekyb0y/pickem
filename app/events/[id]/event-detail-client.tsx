@@ -51,8 +51,11 @@ type EventData = {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZoneName: "short",
   }).format(new Date(value));
 }
@@ -278,7 +281,7 @@ export default function EventDetailClient({
                 {totalBallots === 1 ? "ballot" : "ballots"}
               </span>
               <LiveStatus status={liveStatus} />
-              <span className="text-subtle-foreground">
+              <span className="text-subtle-foreground" suppressHydrationWarning>
                 {timeLabel} {formatDate(timeTarget)} ({timezone}) · <Countdown target={timeTarget} label={timeLabel} />
               </span>
             </div>
@@ -473,7 +476,9 @@ export default function EventDetailClient({
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-muted-foreground">{timeLabel}</dt>
                   <dd className="text-right font-mono tabular-nums text-foreground">
-                    <time dateTime={timeTarget}>{formatDate(timeTarget)}</time>
+                    <time dateTime={timeTarget} suppressHydrationWarning>
+                      {formatDate(timeTarget)}
+                    </time>
                   </dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">

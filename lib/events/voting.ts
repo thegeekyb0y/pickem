@@ -64,6 +64,16 @@ export type VoteResult =
 
 class VoteWindowClosedError extends Error {}
 
+function describeError(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    messages.push(current.message);
+    current = current.cause;
+  }
+  return messages.join("\n");
+}
+
 async function verifyPasscode(encoded: string, candidate: string) {
   const [algorithm, salt, expectedHex] = encoded.split("$");
   if (algorithm !== "scrypt" || !salt || !expectedHex || !/^[a-f0-9]+$/i.test(expectedHex)) {
@@ -384,7 +394,7 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
     revalidatePath(`/events/${input.eventId}`);
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
+    const message = describeError(error);
     if (error instanceof VoteWindowClosedError) {
       return { ok: false, reason: "closed", message: "Voting is not open for this quiz." };
     }

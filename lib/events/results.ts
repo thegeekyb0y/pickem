@@ -64,7 +64,6 @@ export async function getResultSnapshot(event: ResultEvent): Promise<ResultSnaps
       questionId: questions.id,
       optionId: options.id,
       selections: count(ballotAnswers.id),
-      totalBallots: sql<number>`count(distinct ${ballotAnswers.voteId})::int`,
     })
     .from(questions)
     .leftJoin(options, eq(options.questionId, questions.id))
@@ -78,22 +77,36 @@ export async function getResultSnapshot(event: ResultEvent): Promise<ResultSnaps
     .where(eq(questions.eventId, event.id))
     .groupBy(questions.id, questions.sortOrder, options.id, options.sortOrder)
     .orderBy(questions.sortOrder, options.sortOrder);
+  const questionTotalsQuery = db
+    .select({
+      questionId: ballotAnswers.questionId,
+      totalBallots: sql<number>`count(distinct ${ballotAnswers.voteId})::int`,
+    })
+    .from(ballotAnswers)
+    .innerJoin(questions, eq(questions.id, ballotAnswers.questionId))
+    .where(eq(questions.eventId, event.id))
+    .groupBy(ballotAnswers.questionId);
 
-  const [[totalRow], questionRows, [clockRow]] = await Promise.all([
+  const [[totalRow], questionRows, questionTotalRows, [clockRow]] = await Promise.all([
     totalQuery,
     questionCountsQuery,
+    questionTotalsQuery,
     nowQuery,
   ]);
+  const totalsByQuestion = new Map(
+    questionTotalRows.map((row) => [row.questionId, Number(row.totalBallots ?? 0)]),
+  );
   const questionsById = new Map<string, QuestionResultSnapshot>();
   for (const row of questionRows) {
+    const totalBallots = totalsByQuestion.get(row.questionId) ?? 0;
     const question = questionsById.get(row.questionId) ?? {
       questionId: row.questionId,
-      version: Number(row.totalBallots ?? 0),
-      totalBallots: Number(row.totalBallots ?? 0),
+      version: totalBallots,
+      totalBallots,
       counts: {},
     };
-    question.version = Number(row.totalBallots ?? 0);
-    question.totalBallots = Number(row.totalBallots ?? 0);
+    question.version = totalBallots;
+    question.totalBallots = totalBallots;
     if (row.optionId) question.counts[row.optionId] = Number(row.selections);
     questionsById.set(row.questionId, question);
   }
