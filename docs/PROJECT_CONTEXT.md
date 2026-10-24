@@ -20,16 +20,14 @@ Last updated: 2026-10-23.
 
 ## Current repository state
 
-- `origin/main` is `4d299e0 Merge pull request #4 from
-  thegeekyb0y/fix/draft-save-reliability`. PRs #1–#4 are merged, so `main`
-  contains the multi-question builder and Phase 1 reliability fixes. Production
-  is expected to track `main`; confirm the Vercel deployment before the smoke
-  test.
-- Local `main` and `origin/main` are aligned at `4d299e0`.
-- `feat/phase-2-poll-polish`, branched from `origin/main`, is open as PR #5. It
-  contains the Phase 2 poll pass and follow-up phases 1–5: Discover tab
-  treatment, sky-neutral badges, inline option images, the compact cover editor
-  with focal point, and fully clickable Discover cards.
+- `origin/main` is `b830cf7 Merge pull request #6 from
+  thegeekyb0y/feat/phase-2-poll-polish`. PRs #1–#6 are merged, so `main`
+  contains the multi-question builder, Phase 1 reliability fixes, and poll
+  polish phases 1–5. Production is expected to track `main`; confirm the Vercel
+  deployment before the smoke test.
+- Local `main` is aligned with `origin/main` at `b830cf7`.
+- `feat/share-slug-image-controls`, branched from `origin/main`, adds custom
+  event share slugs and Google-Forms-style cover/option image controls.
 - Local `feature/fluid-quiz-builder` is `cf101c5`, fully contained in
   `origin/main`.
 - Safety branches: `backup/wip-quiz-builder` (`f3abaa6`) and
@@ -41,8 +39,9 @@ Last updated: 2026-10-23.
   production. The legacy model was backfilled into questions, options, and
   ballot answers. Migration `0007` is applied to production and replaces the
   stale question-guard trigger whose `event_id` variable collided with
-  `votes.event_id`; the planned contract migration is now `0008` and still needs
-  a fresh production create/vote smoke test plus a Neon backup branch.
+  `votes.event_id`. Migration `0008` adds the nullable unique share slug; the
+  planned contract migration is now `0009` and still needs a fresh production
+  create/vote smoke test plus a Neon backup branch.
 - Local test container `pickem-test-pg` is running on port `55432`; integration
   and e2e suites point at it through `DATABASE_URL_TEST`.
 
@@ -85,6 +84,7 @@ quiz-level ballot/identity row.
 | Voting window | `opens_at` / `closes_at`, evaluated against the database clock |
 | Identity | A signed-in user, or a guest session token held in a cookie |
 | Cover | `cover_kind` (`preset`, `unsplash`, `upload`, `none`), `cover_ref`, `cover_meta` |
+| Share link | Optional `events.slug`, unique when present, resolved by the same `/events/[id]` route |
 | Draft concurrency | `events.draft_version` optimistic version gate |
 
 Ballots are immutable once submitted. Database triggers enforce answer shape,
@@ -185,6 +185,11 @@ only) has its own migration gate.
   focal-point rendering on cards and poll pages, and legacy Unsplash rendering.
   The picker no longer offers Unsplash, but its route, cache, credit, and
   metadata paths remain for existing covers.
+- Share slugs and image controls: creators can set a normalized, unique
+  `/events/<slug>` link with debounced availability checking; `events.slug` is
+  additive (migration `0008`). The cover preview and option image panel accept
+  uploads, clipboard paste, and removal, with a hover/focus toolbar on the
+  cover and an undo window for removal.
 - WIP multi-question voting: one stacked page, answered count, atomic batched
   answer insert, per-question results, cache/version updates.
 - WIP tests and load scripts: quiz validation, quiz integrity, date picker,
@@ -210,6 +215,11 @@ only) has its own migration gate.
   Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, and
   an invalid `Intl.DateTimeFormat` option plus locale hydration mismatch.
 - PR #5 contains the Phase 2 pass and follow-up phases 1–5, with no migration.
+- Post-PR #6 share-slug/image-control work: lint, typecheck, production build,
+  and 75 unit tests pass locally. Migration `0008` is not applied yet, so
+  database-backed and Playwright suites still need a disposable branch run.
+  Visual verification of the flat selected tab and cover toolbar used a
+  temporary local route that was removed afterward.
 - User-facing copy now says poll/response; identifiers such as `quiz_id`,
   `saveQuiz`, `home:polls`, and `poll-options/` remain intentionally unchanged.
 - Earlier edits failed with `Unknown: FileSystem.writeFile` on several files,
@@ -227,13 +237,14 @@ only) has its own migration gate.
 
 ## Known gaps and next steps
 
-1. **Review and merge PR #5.** Smoke-test create/autosave/reload/publish/vote,
-   the compact cover editor and focal point, and Discover-card navigation on a
-   preview. No migration is involved.
+1. **Ship the share-slug/image-control branch.** Smoke-test create/autosave/
+   reload/publish/vote, slug availability and canonical links, cover/option
+   paste-and-delete, the compact cover editor and focal point, and
+   Discover-card navigation on a preview. Apply migration `0008` first.
 2. **Finalize cover artwork.** Replace the remaining generated preset gradients
    with the owner-supplied pattern/preset artwork when it exists and confirm the
    final wireframe aspect ratio.
-3. **Migration `0008` contract.** Drop legacy `vote_picks`, `votes.option_id` /
+3. **Migration `0009` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
    only after a production create/vote smoke test. Keep it separate from UI work
    and reconcile the missing Drizzle snapshots first.
