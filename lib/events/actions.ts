@@ -17,6 +17,7 @@ import {
   type QuizCoverMeta,
 } from "@/db/schema/app";
 import { parseUtcInstant } from "@/lib/events/date-time";
+import { validateEventSlug } from "@/lib/events/slug";
 import { getQuizCoverPreset } from "@/lib/quiz/cover-presets";
 import { validateQuizQuestions, type QuizOptionInput } from "@/lib/events/quiz-validation";
 import { limitQuizCoverUpload } from "@/lib/rate-limit";
@@ -35,6 +36,7 @@ export type SaveQuizInput = {
   draftStep: number;
   title: string;
   description: string;
+  slug: string;
   opensAt: string;
   closesAt: string;
   visibility: Visibility;
@@ -46,7 +48,14 @@ export type SaveQuizInput = {
 };
 
 export type SaveQuizResult =
-  | { ok: true; eventId: string; status: string; draftVersion: number; hasPasscode: boolean }
+  | {
+      ok: true;
+      eventId: string;
+      status: string;
+      draftVersion: number;
+      hasPasscode: boolean;
+      slug: string | null;
+    }
   | { ok: false; errors: Record<string, string>; formError: string | null };
 
 type SaveQuizTransactionResult =
@@ -67,6 +76,17 @@ async function hashPasscode(code: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = (await scrypt(code, salt, 64)) as Buffer;
   return `scrypt$${salt}$${derived.toString("hex")}`;
+}
+
+/** Walks Drizzle's wrapped error chain for Postgres' unique-violation code. */
+function isUniqueViolation(error: unknown) {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (candidate.code === "23505") return true;
+    current = candidate.cause;
+  }
+  return false;
 }
 
 function normalizeCover(
@@ -166,6 +186,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
     typeof input.opensAt !== "string" ||
     typeof input.closesAt !== "string" ||
     typeof input.passcode !== "string" ||
+    typeof input.slug !== "string" ||
     !Array.isArray(input.questions) ||
     typeof input.coverKind !== "string" ||
     (input.coverRef !== null && typeof input.coverRef !== "string")
@@ -190,6 +211,12 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
 
   const title = input.title.trim();
   const description = input.description.trim();
+  let slug: string | null = null;
+  if (input.slug.trim() !== "") {
+    const slugCheck = validateEventSlug(input.slug);
+    if (!slugCheck.ok) errors.slug = slugCheck.message;
+    else slug = slugCheck.slug;
+  }
   if (!["unlisted", "discoverable", "passcode"].includes(input.visibility)) {
     errors.visibility = "Choose a valid poll visibility.";
   }
@@ -266,6 +293,21 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
     return { ok: false, errors: {}, formError: "This new poll has an invalid draft version." };
   }
 
+  if (slug && (!existing || existing.slug !== slug)) {
+    const [owner] = await db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.slug, slug))
+      .limit(1);
+    if (owner) {
+      return {
+        ok: false,
+        errors: { slug: "That link is already taken." },
+        formError: null,
+      };
+    }
+  }
+
   const now = new Date();
   const finalOpens = opensAt ?? existing?.opensAt ?? now;
   const fallbackClose = new Date((opensAt ?? now).getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -307,6 +349,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
           .set({
             title: title === "" ? "Untitled poll" : title,
             description: description === "" ? null : description,
+            slug,
             status,
             visibility,
             passcodeHash,
@@ -328,6 +371,7 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
             creatorUserId: userId,
             title: title === "" ? "Untitled poll" : title,
             description: description === "" ? null : description,
+            slug,
             status,
             visibility,
             passcodeHash,
@@ -379,9 +423,17 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
         status,
         draftVersion,
         hasPasscode: Boolean(passcodeHash),
+        slug,
       };
     });
   } catch (error) {
+    if (isUniqueViolation(error)) {
+      return {
+        ok: false,
+        errors: { slug: "That link is already taken. Choose another one." },
+        formError: null,
+      };
+    }
     const cause = error instanceof Error ? error.cause : undefined;
     console.error("saveQuiz transaction failed", {
       saveAs: input.saveAs,

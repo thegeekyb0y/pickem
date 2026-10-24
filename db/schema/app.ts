@@ -62,6 +62,9 @@ export const events = pgTable(
       .references(() => user.id, { onDelete: "restrict" }),
     title: text("title").notNull(),
     description: text("description"),
+    /** Human-readable share path, unique across every event. Null keeps the
+     *  UUID-only link for polls that never set one. */
+    slug: text("slug"),
     status: eventStatus("status").default("draft").notNull(),
     visibility: eventVisibility("visibility").default("unlisted").notNull(),
     passcodeHash: text("passcode_hash"),
@@ -82,6 +85,13 @@ export const events = pgTable(
     index("events_creator_user_id_idx").on(table.creatorUserId),
     index("events_status_window_idx").on(table.status, table.opensAt, table.closesAt),
     index("events_visibility_idx").on(table.visibility),
+    uniqueIndex("events_slug_unique")
+      .on(table.slug)
+      .where(sql`${table.slug} is not null`),
+    check(
+      "events_slug_format_chk",
+      sql`${table.slug} is null or (${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' and length(${table.slug}) between 3 and 48)`,
+    ),
     check("events_title_length_chk", sql`length(trim(${table.title})) between 1 and 160`),
     check("events_window_chk", sql`${table.closesAt} > ${table.opensAt}`),
     check("events_updated_after_created_chk", sql`${table.updatedAt} >= ${table.createdAt}`),

@@ -14,6 +14,7 @@ const now = new Date("2026-10-20T12:00:00.000Z");
 function item(overrides: Partial<EventListItem> = {}): EventListItem {
   return {
     id: crypto.randomUUID(),
+    slug: null,
     title: "Poll",
     description: null,
     status: "open",

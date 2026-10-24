@@ -57,6 +57,13 @@
       "when": 1792785700000,
       "tag": "0007_fix_question_guard_ambiguity",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792924800000,
+      "tag": "0008_event_share_slug",
+      "breakpoints": true
     }
   ]
 }

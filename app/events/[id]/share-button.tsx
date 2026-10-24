@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export default function ShareButton({ title }: { title: string }) {
+export default function ShareButton({ title, path }: { title: string; path?: string }) {
   const [message, setMessage] = useState("");
   const resetTimer = useRef<number | null>(null);
 
@@ -22,7 +22,7 @@ export default function ShareButton({ title }: { title: string }) {
   }
 
   async function handleShare() {
-    const url = `${window.location.origin}${window.location.pathname}`;
+    const url = `${window.location.origin}${path ?? window.location.pathname}`;
     try {
       if (navigator.share) {
         await navigator.share({ title, text: `Answer ${title}`, url });

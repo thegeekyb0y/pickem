@@ -10,8 +10,10 @@ import { InputField, InputGroup } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import QuizCoverPicker from "./quiz-cover-picker";
 import QuestionEditor, { blankQuestion, type QuizQuestionState } from "./question-editor";
+import EventSlugField from "./slug-field";
 import { saveQuiz, type SaveQuizInput, type Visibility } from "@/lib/events/actions";
 import { parseUtcInstant } from "@/lib/events/date-time";
+import { validateEventSlug } from "@/lib/events/slug";
 import { validateQuizQuestions } from "@/lib/events/quiz-validation";
 import type { QuizCoverKind, QuizCoverMeta } from "@/db/schema/app";
 import { cn } from "@/lib/cn";
@@ -50,6 +52,7 @@ export type WizardInitial = {
   hasPasscode: boolean;
   title: string;
   description: string;
+  slug: string;
   opensAt: string;
   closesAt: string;
   visibility: Visibility;
@@ -124,6 +127,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
 
   const [title, setTitle] = useState(initial.title);
   const [description, setDescription] = useState(initial.description);
+  const [slug, setSlug] = useState(initial.slug);
   const [opensAt, setOpensAt] = useState(initial.opensAt);
   const [closesAt, setClosesAt] = useState(initial.closesAt);
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
@@ -163,6 +167,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       draftStep: 1,
       title,
       description,
+      slug,
       opensAt,
       closesAt,
       visibility,
@@ -172,7 +177,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
       coverMeta,
       questions: toSaveQuestions(questions),
     };
-  }, [title, description, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions]);
+  }, [title, description, slug, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions]);
 
   const saveDraft = useCallback(async (manual = false) => {
     if (publishingRef.current || blockedAutoSaveRef.current && !manual) return;
@@ -193,6 +198,9 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         setEventId(result.eventId);
         setDraftVersion(result.draftVersion);
         setHasPasscode(result.hasPasscode);
+        // Deliberately not syncing `slug` here: a draft save can return while
+        // the creator is still typing, and the normalized echo would overwrite
+        // their caret. Blur and publish both normalize the field instead.
         if (createdNewDraft) {
           router.replace(`/events/new?draft=${result.eventId}`, { scroll: false });
         }
@@ -242,7 +250,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     if (!dirty || publishing || blockedAutoSaveRef.current) return;
     const timeout = window.setTimeout(() => void saveDraftRef.current?.(false), 850);
     return () => window.clearTimeout(timeout);
-  }, [dirty, title, description, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions, publishing]);
+  }, [dirty, title, description, slug, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions, publishing]);
 
   function updateTitle(value: string) {
     markDirty();
@@ -251,6 +259,10 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   function updateDescription(value: string) {
     markDirty();
     setDescription(value);
+  }
+  function updateSlug(value: string) {
+    markDirty();
+    setSlug(value);
   }
   function updateOpensAt(value: string) {
     markDirty();
@@ -296,6 +308,10 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     if (!opens) nextErrors.opensAt = "Choose when voting opens.";
     if (!closes) nextErrors.closesAt = "Choose when voting closes.";
     if (opens && closes && closes <= opens) nextErrors.closesAt = "Closing time must be after opening time.";
+    if (slug.trim() !== "") {
+      const slugCheck = validateEventSlug(slug);
+      if (!slugCheck.ok) nextErrors.slug = slugCheck.message;
+    }
     if (visibility === "passcode" && passcode.length < 4 && !hasPasscode) {
       nextErrors.passcode = "Set a passcode of at least 4 characters.";
     }
@@ -320,7 +336,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         draftVersionRef.current = result.draftVersion;
         setEventId(result.eventId);
         setDraftVersion(result.draftVersion);
-        router.push(`/events/${result.eventId}`);
+        setSlug(result.slug ?? "");
+        router.push(`/events/${result.slug ?? result.eventId}`);
         return;
       }
       setErrors(result.errors);
@@ -415,6 +432,14 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
             </div>
+            <EventSlugField
+              value={slug}
+              initialValue={initial.slug}
+              eventId={eventId}
+              title={title}
+              error={errors.slug}
+              onChange={updateSlug}
+            />
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <DateTimePicker

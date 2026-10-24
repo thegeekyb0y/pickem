@@ -75,6 +75,14 @@ const quizCoverUploadLimiter = new Ratelimit({
   analytics: false,
   timeout: 750,
 });
+const slugAvailabilityLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(40, "1 m"),
+  prefix: "pickem:rate:slug-availability",
+  ephemeralCache,
+  analytics: false,
+  timeout: 750,
+});
 
 function digest(value: string) {
   const secret = process.env.RATE_LIMIT_HASH_SECRET ?? process.env.BETTER_AUTH_SECRET ?? "pickem-development";
@@ -131,4 +139,8 @@ export async function limitUnsplashApiRequest() {
 
 export async function limitQuizCoverUpload(userId: string) {
   return allowed(quizCoverUploadLimiter, userId);
+}
+
+export async function limitSlugAvailability(userId: string) {
+  return allowed(slugAvailabilityLimiter, userId);
 }

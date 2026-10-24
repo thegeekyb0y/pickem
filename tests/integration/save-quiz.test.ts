@@ -70,6 +70,7 @@ describe.skipIf(!enabled)("saveQuiz", () => {
       draftStep: 1,
       title: "Timestamp regression poll",
       description: "",
+      slug: "",
       opensAt,
       closesAt,
       visibility: "unlisted" as const,

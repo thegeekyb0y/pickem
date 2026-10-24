@@ -26,6 +26,7 @@ export function getEventPhase(event: EventPhaseInput, now: Date): EventPhase {
 
 export type EventListItem = {
   id: string;
+  slug: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -81,6 +82,7 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
   const rows = await db
     .select({
       id: events.id,
+      slug: events.slug,
       title: events.title,
       description: events.description,
       status: events.status,
@@ -137,7 +139,7 @@ const getCachedDiscoverablePolls = unstable_cache(
       closesAt: row.closesAt.toISOString(),
     }));
   },
-  ["home-discoverable-quizzes-v2"],
+  ["home-discoverable-quizzes-v3"],
   { tags: ["home:polls"], revalidate: 45 },
 );
 

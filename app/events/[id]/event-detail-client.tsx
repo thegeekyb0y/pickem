@@ -38,6 +38,7 @@ type QuestionData = {
 
 type EventData = {
   id: string;
+  slug: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -258,7 +259,7 @@ export default function EventDetailClient({
               <h1 className="text-balance text-3xl font-bold leading-10 sm:text-4xl sm:leading-[3rem]">
                 {event.title}
               </h1>
-              <ShareButton title={event.title} />
+              <ShareButton title={event.title} path={event.slug ? `/events/${event.slug}` : undefined} />
             </div>
             {isOwner ? (
               <div className="mt-4">

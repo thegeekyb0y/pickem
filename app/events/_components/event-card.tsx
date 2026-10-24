@@ -40,7 +40,7 @@ export default function EventCard({
           </div>
           <h3 className="mt-4 line-clamp-2 text-balance text-xl font-bold">
             <Link
-              href={`/events/${poll.id}`}
+              href={`/events/${poll.slug ?? poll.id}`}
               className="rounded-sm after:absolute after:inset-0 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {poll.title}

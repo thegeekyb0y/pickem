@@ -14,17 +14,19 @@ import { getResultSnapshot, hideSnapshotTallies } from "@/lib/events/results";
 import PasscodeGate from "./passcode-gate";
 import EventDetailClient from "./event-detail-client";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default async function EventDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    notFound();
-  }
+  const isUuid = UUID_PATTERN.test(id);
+  if (!isUuid && id.length > 48) notFound();
   const event = await db.query.events.findFirst({
-    where: eq(events.id, id),
+    where: isUuid ? eq(events.id, id) : eq(events.slug, id.toLowerCase()),
     with: {
       questions: {
         orderBy: (table, { asc }) => [asc(table.sortOrder)],
@@ -95,6 +97,7 @@ export default async function EventDetailPage({
     <EventDetailClient
       event={{
         id: event.id,
+        slug: event.slug,
         title: event.title,
         description: event.description,
         status: event.status,

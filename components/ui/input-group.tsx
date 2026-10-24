@@ -121,6 +121,8 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
       error,
       disabled,
       className,
+      onFocus,
+      onBlur,
       ...props
     },
     ref
@@ -268,8 +270,14 @@ const InputField = forwardRef<HTMLDivElement, InputFieldProps>(
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
+            onFocus={(event) => {
+              handleFocus();
+              onFocus?.(event);
+            }}
+            onBlur={(event) => {
+              handleBlur();
+              onBlur?.(event);
+            }}
             placeholder={placeholder}
             className={cn(
               "w-full rounded-none bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-[inherit]",
