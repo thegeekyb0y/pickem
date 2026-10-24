@@ -28,7 +28,7 @@ export default function DiscoverStatusTabs({
       <TabsList
         aria-label="Poll status"
         indicator="flat"
-        className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 pb-1 [--focus-ring:var(--foreground)]"
+        className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 pb-1 [--focus-ring:var(--muted-foreground)]"
       >
         <TabItem
           value="live"

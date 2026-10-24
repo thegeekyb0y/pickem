@@ -23,7 +23,7 @@ import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
 import { SizeProvider, useSize, type SizeVariant } from "@/lib/size-context";
 import { useSurface } from "@/lib/surface-context";
-import { surfaceClasses } from "@/lib/surface-classes";
+import { surfaceClasses, SURFACE_BG } from "@/lib/surface-classes";
 import { useFluidHover } from "@/hooks/use-fluid-hover";
 
 // ---------------------------------------------------------------------------
@@ -363,9 +363,10 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
                 "absolute pointer-events-none",
                 // A raised surface (background + shadow), not a tint, so the
                 // selected tab lifts off the muted track. Flat keeps the fill
-                // but drops the shadow on bordered filter bars.
-                surfaceClasses(indicatorLevel),
-                indicator === "flat" && "shadow-none",
+                // but drops the ring/shadow on bordered filter bars.
+                indicator === "flat"
+                  ? SURFACE_BG[indicatorLevel]
+                  : surfaceClasses(indicatorLevel),
                 shape.bg
               )}
               initial={false}
