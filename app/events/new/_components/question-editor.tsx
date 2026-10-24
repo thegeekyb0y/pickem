@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { Reorder, useDragControls } from "motion/react";
-import { ChevronDown, ChevronUp, Copy, GripVertical, ImagePlus, Link, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, ClipboardPaste, Copy, GripVertical, ImagePlus, Link, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
 import { spring } from "@/lib/springs";
 import { uploadOptionImage } from "@/lib/events/actions";
+import { imageFileFromClipboard, imageFileFromDataTransfer } from "@/lib/quiz/clipboard-image";
 import type { QuizQuestionInput } from "@/lib/events/quiz-validation";
 
 export type QuizOptionState = QuizQuestionInput["options"][number] & {
@@ -91,6 +92,29 @@ function OptionImageControl({
     }
   }
 
+  function handlePaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    const file = imageFileFromDataTransfer(event.clipboardData);
+    if (!file) return;
+    event.preventDefault();
+    onUpload(file);
+  }
+
+  async function pasteImage() {
+    update({ imageError: null });
+    try {
+      const file = await imageFileFromClipboard();
+      if (!file) {
+        update({ imageError: "No image on the clipboard. Copy an image or press Ctrl/⌘ + V." });
+        return;
+      }
+      onUpload(file);
+    } catch {
+      update({
+        imageError: "Clipboard access was blocked. Press Ctrl/⌘ + V in this panel instead.",
+      });
+    }
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -122,6 +146,7 @@ function OptionImageControl({
       <PopoverContent
         align="start"
         sideOffset={6}
+        onPaste={handlePaste}
         className="w-[min(21rem,calc(100vw-2rem))] space-y-3 p-3"
       >
         <PopoverHeader>
@@ -151,6 +176,20 @@ function OptionImageControl({
               className="mt-1 block w-full text-xs text-foreground file:mr-2 file:min-h-9 file:rounded-md file:border file:border-border file:bg-surface-1 file:px-3 file:text-xs file:font-medium file:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
             <p className="mt-1 text-xs text-muted-foreground">PNG, JPEG, or WebP, under 4 MB.</p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="compact"
+              leadingIcon={ClipboardPaste}
+              disabled={option.uploading}
+              onClick={() => void pasteImage()}
+              className="font-fluid mt-2 min-h-9 px-3"
+            >
+              Paste image
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Or press Ctrl/⌘ + V anywhere in this panel.
+            </p>
             {option.uploading ? (
               <p role="status" aria-live="polite" className="mt-1 text-xs text-muted-foreground">
                 Uploading…

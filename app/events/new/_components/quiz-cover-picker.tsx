@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ImagePlus, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TabItem, TabPanel, Tabs, TabsList } from "@/components/ui/tabs";
 import QuizCover from "@/components/quiz-cover";
+import QuizImageActions from "@/components/quiz-image-actions";
 import { uploadQuizCover, type QuizCoverUploadResult } from "@/lib/events/actions";
 import type { QuizCoverKind, QuizCoverMeta } from "@/db/schema/app";
 import { getQuizCoverPreset, QUIZ_COVER_PRESETS } from "@/lib/quiz/cover-presets";
 import { prepareQuizCover } from "@/lib/quiz/process-cover-image";
+import {
+  imageFileFromClipboard,
+  imageFileFromDataTransfer,
+} from "@/lib/quiz/clipboard-image";
 
 type CoverSource = "preset" | "upload";
 
@@ -38,9 +44,36 @@ export default function QuizCoverPicker({
   );
   const [status, setStatus] = useState<"idle" | "uploading">("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [undoCover, setUndoCover] = useState<CoverSelection | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    },
+    [],
+  );
+
+  function clearUndo() {
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = null;
+    setUndoCover(null);
+  }
+
+  function openFilePicker() {
+    setMessage(null);
+    fileInputRef.current?.click();
+  }
 
   async function uploadCover(file: File | undefined) {
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage("Choose an image file (PNG, JPEG, or WebP).");
+      return;
+    }
+    clearUndo();
     setStatus("uploading");
     setMessage(null);
     try {
@@ -50,6 +83,7 @@ export default function QuizCoverPicker({
       const result: QuizCoverUploadResult = await uploadQuizCover(formData);
       if (!result.ok) throw new Error(result.error);
       onChange({ kind: "upload", ref: result.url, meta: { focalPoint: { x: 0.5, y: 0.5 } } });
+      setSource("upload");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The image could not be uploaded.");
     } finally {
@@ -58,13 +92,53 @@ export default function QuizCoverPicker({
   }
 
   function removeCover() {
-    setSource("preset");
-    setMessage(null);
+    if (value.kind === "none" && !value.ref) return;
+    setUndoCover(value);
+    setMessage("Cover removed.");
     onChange({ kind: "none", ref: null, meta: null });
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = window.setTimeout(() => {
+      setUndoCover(null);
+      undoTimerRef.current = null;
+    }, 8000);
+  }
+
+  function undoRemove() {
+    if (!undoCover) return;
+    onChange(undoCover);
+    clearUndo();
+    setMessage(null);
+  }
+
+  function handlePaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    const file = imageFileFromDataTransfer(event.clipboardData);
+    if (!file) {
+      setMessage("The clipboard doesn’t contain an image. Copy an image, then paste again.");
+      return;
+    }
+    event.preventDefault();
+    void uploadCover(file);
+  }
+
+  async function pasteFromClipboard() {
+    setMessage(null);
+    try {
+      const file = await imageFileFromClipboard();
+      if (!file) {
+        setMessage("No image on the clipboard. Copy an image or press Ctrl/⌘ + V.");
+        previewRef.current?.focus();
+        return;
+      }
+      await uploadCover(file);
+    } catch {
+      setMessage("Clipboard access was blocked. Press Ctrl/⌘ + V on the preview instead.");
+      previewRef.current?.focus();
+    }
   }
 
   const selectedPreset = value.kind === "preset" ? getQuizCoverPreset(value.ref) : null;
-  const hasImage = value.kind === "upload" || value.kind === "unsplash";
+  const hasCover = value.kind !== "none" && Boolean(value.ref);
+  const hasCrop = value.kind === "upload" || value.kind === "unsplash";
   const focalPoint = {
     x: clamp(value.meta?.focalPoint?.x ?? 0.5),
     y: clamp(value.meta?.focalPoint?.y ?? 0.5),
@@ -85,16 +159,30 @@ export default function QuizCoverPicker({
 
   return (
     <section aria-labelledby="quiz-cover-heading" className="space-y-4">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        aria-label="Cover image file"
+        tabIndex={-1}
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          void uploadCover(file);
+        }}
+      />
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="quiz-cover-heading" className="text-balance text-base font-semibold text-foreground">
             Cover image
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-pretty text-sm text-muted-foreground">
             Optional. A banner appears on this poll and its Discover card.
           </p>
         </div>
-        {value.kind !== "none" ? (
+        {hasCover ? (
           <Button
             type="button"
             variant="ghost"
@@ -109,27 +197,70 @@ export default function QuizCoverPicker({
 
       <div className="grid gap-4 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
         <div className="min-w-0">
-          <div className="relative">
-            <QuizCover
-              kind={value.kind}
-              coverRef={value.ref}
-              meta={value.meta}
-              layout="preview"
-              showPlaceholder
-            />
-            {hasImage ? (
-              <span
+          <div
+            ref={previewRef}
+            tabIndex={hasCover ? 0 : undefined}
+            role="group"
+            aria-label={
+              hasCover
+                ? "Cover image preview. Press Control or Command plus V to paste an image."
+                : undefined
+            }
+            onPaste={handlePaste}
+            className="group relative rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {hasCover ? (
+              <>
+                <QuizCover
+                  kind={value.kind}
+                  coverRef={value.ref}
+                  meta={value.meta}
+                  layout="preview"
+                />
+                <QuizImageActions
+                  onReplace={openFilePicker}
+                  onPaste={() => void pasteFromClipboard()}
+                  onDelete={removeCover}
+                  busy={status === "uploading"}
+                />
+                {hasCrop ? (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-foreground shadow-sm"
+                    style={{
+                      left: `${focalPoint.x * 100}%`,
+                      top: `${focalPoint.y * 100}%`,
+                    }}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={status === "uploading"}
+                className="flex aspect-[3/1] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border bg-surface-2 px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:border-accent hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none"
+              >
+                <ImagePlus aria-hidden="true" className="size-5" />
+                <span>Add cover image</span>
+                <span className="text-xs font-normal">Click, or paste an image</span>
+              </button>
+            )}
+
+            {status === "uploading" ? (
+              <div
                 aria-hidden="true"
-                className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-foreground shadow-sm"
-                style={{
-                  left: `${focalPoint.x * 100}%`,
-                  top: `${focalPoint.y * 100}%`,
-                }}
-              />
+                className="absolute inset-0 grid place-items-center rounded-xl bg-foreground/60"
+              >
+                <span className="inline-flex items-center gap-2 rounded-md bg-background px-2.5 py-1.5 text-xs font-medium text-foreground">
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                  Uploading…
+                </span>
+              </div>
             ) : null}
           </div>
 
-          {hasImage ? (
+          {hasCrop ? (
             <fieldset className="mt-3 min-w-0 space-y-2">
               <legend className="text-xs font-medium text-foreground">Focal point</legend>
               <p className="text-pretty text-xs text-muted-foreground">
@@ -195,7 +326,11 @@ export default function QuizCoverPicker({
                   <button
                     type="button"
                     aria-pressed={selectedPreset?.id === preset.id}
-                    onClick={() => onChange({ kind: "preset", ref: preset.id, meta: null })}
+                    onClick={() => {
+                      clearUndo();
+                      setMessage(null);
+                      onChange({ kind: "preset", ref: preset.id, meta: null });
+                    }}
                     className="w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     <span
@@ -213,38 +348,44 @@ export default function QuizCoverPicker({
           </TabPanel>
 
           <TabPanel value="upload" className="pt-3">
-            <label htmlFor="quiz-cover-file" className="block text-sm font-medium text-foreground">
-              Upload a banner image
-            </label>
-            <p className="mt-1 text-xs text-muted-foreground">
-              PNG, JPEG, or WebP. The image is resized to WebP and metadata is removed.
-            </p>
-            <input
-              id="quiz-cover-file"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              disabled={status === "uploading"}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                void uploadCover(file);
-              }}
-              className="mt-2 block w-full text-sm text-foreground file:mr-3 file:min-h-9 file:rounded-md file:border file:border-border file:bg-surface-1 file:px-3 file:text-xs file:font-medium file:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            />
-            {status === "uploading" ? (
-              <p role="status" aria-live="polite" className="mt-2 text-sm text-muted-foreground">
-                Processing and uploading cover…
+            <div className="rounded-lg border border-dashed border-border bg-surface-1 p-3">
+              <p className="text-sm font-medium text-foreground">Upload a banner image</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                PNG, JPEG, or WebP. The image is resized to WebP and metadata is removed.
               </p>
-            ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                leadingIcon={Upload}
+                disabled={status === "uploading"}
+                onClick={openFilePicker}
+                className="font-fluid mt-3 min-h-9 px-3"
+              >
+                Choose image
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Or focus the preview and paste an image with Ctrl/⌘ + V.
+              </p>
+            </div>
           </TabPanel>
         </Tabs>
       </div>
 
-      {message ? (
-        <p role="status" aria-live="polite" className="text-sm text-accent">
-          {message}
-        </p>
-      ) : null}
+      <div
+        aria-live="polite"
+        className="flex min-h-5 flex-wrap items-center gap-2 text-sm text-muted-foreground"
+      >
+        {message ? <span>{message}</span> : null}
+        {undoCover ? (
+          <button
+            type="button"
+            onClick={undoRemove}
+            className="font-medium text-foreground underline underline-offset-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            Undo
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
