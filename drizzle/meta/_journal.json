@@ -64,6 +64,13 @@
       "when": 1792924800000,
       "tag": "0008_event_share_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792946681495,
+      "tag": "0009_fix_option_publish_validation",
+      "breakpoints": true
     }
   ]
 }

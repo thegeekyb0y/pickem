@@ -79,6 +79,32 @@ async function createVoter(voterId: string) {
   userIds.push(voterId);
 }
 
+/** Submits a complete ballot, picking `optionIndex` (default: first) per question. */
+async function submitBallot(
+  quiz: Awaited<ReturnType<typeof createQuiz>>,
+  voterId: string,
+  optionIndexes: number[] = quiz.questionIds.map(() => 0),
+) {
+  if (!sql) throw new Error("Integration database is not enabled");
+  return sql.begin(async (tx) => {
+    const [vote] = await tx`
+      insert into votes (event_id, voter_user_id)
+      values (${quiz.eventId}, ${voterId})
+      returning id
+    `;
+    for (const [index, questionId] of quiz.questionIds.entries()) {
+      await tx`
+        insert into ballot_answers (vote_id, event_id, question_id, option_id, rank_position)
+        values (
+          ${vote.id}, ${quiz.eventId}, ${questionId},
+          ${quiz.optionIds[index][optionIndexes[index] ?? 0]}, 1
+        )
+      `;
+    }
+    return vote.id as string;
+  });
+}
+
 describe.skipIf(!enabled)("multi-question database integrity triggers", () => {
   afterEach(async () => {
     if (!sql) return;
@@ -222,5 +248,172 @@ describe.skipIf(!enabled)("multi-question database integrity triggers", () => {
       .rejects.toThrow(/immutable/i);
     await expect(sql`delete from ballot_answers where id = ${answerId}`)
       .rejects.toThrow(/immutable/i);
+  });
+
+  it("updates and reorders questions before and after ballots exist", async () => {
+    if (!sql) return;
+    const quiz = await createQuiz([{ prompt: "First" }, { prompt: "Second" }]);
+
+    // Before any ballot: copy edits and order swaps are ordinary draft work.
+    await sql`update questions set prompt = 'First edited' where id = ${quiz.questionIds[0]}`;
+    await sql.begin(async (tx) => {
+      await tx`update questions set sort_order = 1 where id = ${quiz.questionIds[0]}`;
+      await tx`update questions set sort_order = 0 where id = ${quiz.questionIds[1]}`;
+    });
+
+    const voterId = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(voterId);
+    await submitBallot(quiz, voterId);
+
+    // After a ballot: copy edits and reordering still work; pick settings and
+    // option order are frozen.
+    await sql.begin(async (tx) => {
+      await tx`update questions set sort_order = 0 where id = ${quiz.questionIds[0]}`;
+      await tx`update questions set sort_order = 1 where id = ${quiz.questionIds[1]}`;
+      await tx`update questions set prompt = 'First edited again' where id = ${quiz.questionIds[0]}`;
+    });
+
+    const rows = await sql`
+      select id, prompt from questions where event_id = ${quiz.eventId} order by sort_order
+    `;
+    expect(rows.map((row) => row.id)).toEqual([quiz.questionIds[0], quiz.questionIds[1]]);
+    expect(rows[0].prompt).toBe("First edited again");
+
+    await expect(sql`
+      update options set sort_order = 1 where id = ${quiz.optionIds[0][0]}
+    `).rejects.toThrow(/immutable/i);
+  });
+
+  it("deletes options before ballots and refuses once a ballot exists", async () => {
+    if (!sql) return;
+    const quiz = await createQuiz([{ options: 3 }]);
+    await sql`delete from options where id = ${quiz.optionIds[0][2]}`;
+    const [{ count }] = await sql`
+      select count(*)::int as count from options where question_id = ${quiz.questionIds[0]}
+    `;
+    expect(count).toBe(2);
+
+    // A published quiz cannot drop below two options, even with no ballots.
+    await expect(sql`delete from options where id = ${quiz.optionIds[0][1]}`)
+      .rejects.toThrow(/between two and eight options/i);
+
+    const voted = await createQuiz([{ options: 2 }]);
+    const voterId = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(voterId);
+    await submitBallot(voted, voterId, [0]);
+    // The untouched option is frozen too, not just the one that was picked.
+    await expect(sql`delete from options where id = ${voted.optionIds[0][1]}`)
+      .rejects.toThrow(/immutable after ballots/i);
+
+    // Drafts are exempt until they are published.
+    const draft = await createQuiz([{ options: 2 }], { status: "draft" });
+    await sql`delete from options where id = ${draft.optionIds[0][1]}`;
+    const [{ count: draftCount }] = await sql`
+      select count(*)::int as count from options where question_id = ${draft.questionIds[0]}
+    `;
+    expect(draftCount).toBe(1);
+  });
+
+  it("revalidates a published quiz when options are added or removed", async () => {
+    if (!sql) return;
+    const quiz = await createQuiz([{ options: 2 }]);
+    const replacementId = crypto.randomUUID();
+
+    await expect(sql`delete from options where id = ${quiz.optionIds[0][1]}`)
+      .rejects.toThrow(/between two and eight options/i);
+
+    // Delete-and-replace is fine because the validation is deferred to commit.
+    await sql.begin(async (tx) => {
+      await tx`delete from options where id = ${quiz.optionIds[0][1]}`;
+      await tx`
+        insert into options (id, question_id, label, sort_order)
+        values (${replacementId}, ${quiz.questionIds[0]}, 'Replacement', 1)
+      `;
+    });
+
+    const rows = await sql`
+      select id from options where question_id = ${quiz.questionIds[0]} order by sort_order
+    `;
+    expect(rows.map((row) => row.id)).toEqual([quiz.optionIds[0][0], replacementId]);
+
+    await sql`
+      insert into options (question_id, label, sort_order)
+      values (${quiz.questionIds[0]}, 'Third', 2)
+    `;
+    const [{ count }] = await sql`
+      select count(*)::int as count from options where question_id = ${quiz.questionIds[0]}
+    `;
+    expect(count).toBe(3);
+  });
+
+  it("rejects a partially answered ballot", async () => {
+    if (!sql) return;
+    const quiz = await createQuiz([{ options: 2 }, { prompt: "Second", options: 2 }]);
+    const voterId = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(voterId);
+    await expect(sql.begin(async (tx) => {
+      const [vote] = await tx`
+        insert into votes (event_id, voter_user_id)
+        values (${quiz.eventId}, ${voterId})
+        returning id
+      `;
+      await tx`
+        insert into ballot_answers (vote_id, event_id, question_id, option_id, rank_position)
+        values (${vote.id}, ${quiz.eventId}, ${quiz.questionIds[0]}, ${quiz.optionIds[0][0]}, 1)
+      `;
+    })).rejects.toThrow(/Pick one question needs exactly one answer/i);
+  });
+
+  it("refuses ballots once the poll is closed or outside its window", async () => {
+    if (!sql) return;
+    const quiz = await createQuiz([{ options: 2 }]);
+    const earlyVoter = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(earlyVoter);
+    const voteId = await submitBallot(quiz, earlyVoter, [0]);
+
+    await sql`
+      update events set status = 'closed', closes_at = clock_timestamp()
+      where id = ${quiz.eventId}
+    `;
+
+    const lateVoter = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(lateVoter);
+    await expect(sql`
+      insert into votes (event_id, voter_user_id) values (${quiz.eventId}, ${lateVoter})
+    `).rejects.toThrow(/Voting is not open/i);
+
+    const [{ count }] = await sql`
+      select count(*)::int as count from votes where event_id = ${quiz.eventId}
+    `;
+    expect(count).toBe(1);
+    const [survivor] = await sql`select id from votes where id = ${voteId}`;
+    expect(survivor.id).toBe(voteId);
+
+    // An `open` row whose window already elapsed is closed for voting too.
+    const expired = await createQuiz([{ options: 2 }]);
+    await sql`
+      update events set closes_at = clock_timestamp() - interval '1 minute'
+      where id = ${expired.eventId}
+    `;
+    const expiredVoter = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(expiredVoter);
+    await expect(sql`
+      insert into votes (event_id, voter_user_id) values (${expired.eventId}, ${expiredVoter})
+    `).rejects.toThrow(/Voting is not open/i);
+
+    // Scheduled polls reject ballots before `opens_at`.
+    const upcoming = await createQuiz([{ options: 2 }], { status: "draft" });
+    await sql`
+      update events
+      set status = 'scheduled',
+          opens_at = clock_timestamp() + interval '1 hour',
+          closes_at = clock_timestamp() + interval '2 hours'
+      where id = ${upcoming.eventId}
+    `;
+    const eagerVoter = `quiz-voter-${crypto.randomUUID()}`;
+    await createVoter(eagerVoter);
+    await expect(sql`
+      insert into votes (event_id, voter_user_id) values (${upcoming.eventId}, ${eagerVoter})
+    `).rejects.toThrow(/Voting is not open/i);
   });
 });
