@@ -66,6 +66,8 @@ npx drizzle-kit generate       # creates a migration after a schema change
 ```
 
 Migrations must run against a **direct** connection, not the pooler.
+Do not run `drizzle-kit generate` yet: snapshots `0005`–`0009` are missing, so it
+would diff against `0004` and emit duplicate SQL. Rebuild the chain first.
 
 ## Scripts
 
@@ -75,13 +77,14 @@ Migrations must run against a **direct** connection, not the pooler.
 | `npm run build` / `npm run start` | Production build and server. |
 | `npm run lint` | ESLint. |
 | `npm run typecheck` | Generates route types, then runs `tsc --noEmit`. |
-| `npm test` | Unit and integration tests. |
-| `npm run test:integration` | Integration tests only. |
+| `npm test` | Unit tests only. |
+| `npm run test:integration` | Database-backed integration tests (the DB step). |
 | `npm run test:e2e` | Playwright end-to-end tests. |
 
 Integration and end-to-end tests need `DATABASE_URL_TEST` and
 `ALLOW_TEST_DB_MUTATION=1`. They refuse to run when the target database is the
-production database.
+production database. `npm test` does not touch the database; the database
+suites run only through `npm run test:integration` and `npm run test:e2e`.
 
 ## How it works
 

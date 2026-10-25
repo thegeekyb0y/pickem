@@ -259,13 +259,17 @@ only) has its own migration gate.
 
 ## Rehearsal and test status
 
+- Script split: `npm test` runs **unit tests only**; `npm run test:integration`
+  is the database step and `npm run test:e2e` is Playwright. A plain `npm test`
+  never touches the database and cannot catch the DB-level guards.
 - Unit: **14 files / 75 tests** pass. The whole suite in one process exceeds the
   90 s command budget because of import time, so it is verified as three split
   runs (8 files/35 tests, 4 files/34 tests, 2 files/6 tests).
 - Integration: **5 files / 31 tests** pass on three databases — the base test
   database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
-  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`). Files:
-  `voting`, `save-quiz`, `quiz-integrity`, `concurrency`, `slug-route`.
+  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`). Per file:
+  `quiz-integrity` 13, `save-quiz` 5, `slug-route` 5, `voting` 5,
+  `concurrency` 3. The earlier 4-file / 23-test figure predates the slug tests.
 - Playwright: **5 tests in 4 files**; `share-slug` passed 1/1. The full e2e run
   needs port 3000 free and a single worker.
 - Lint, typecheck, and workflow YAML parse pass. The production build is part of
