@@ -78,7 +78,9 @@ export const events = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      // `created_at` is written by the database, so every update must use the
+      // same clock or the `updated_at >= created_at` checks can fail on drift.
+      .$onUpdate(() => sql`clock_timestamp()`)
       .notNull(),
   },
   (table) => [
@@ -126,7 +128,9 @@ export const questions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      // `created_at` is written by the database, so every update must use the
+      // same clock or the `updated_at >= created_at` checks can fail on drift.
+      .$onUpdate(() => sql`clock_timestamp()`)
       .notNull(),
   },
   (table) => [
@@ -161,7 +165,9 @@ export const options = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      // `created_at` is written by the database, so every update must use the
+      // same clock or the `updated_at >= created_at` checks can fail on drift.
+      .$onUpdate(() => sql`clock_timestamp()`)
       .notNull(),
   },
   (table) => [

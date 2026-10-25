@@ -41,6 +41,54 @@ if (enabled && testUrl) {
   ({ saveQuiz } = await import("@/lib/events/actions"));
 }
 
+type SaveQuizInput = Parameters<NonNullable<typeof saveQuiz>>[0];
+
+function buildInput(overrides: Partial<SaveQuizInput> = {}): SaveQuizInput {
+  return {
+    eventId: null,
+    expectedDraftVersion: null,
+    saveAs: "draft",
+    draftStep: 1,
+    title: "Timestamp regression poll",
+    description: "",
+    slug: "",
+    opensAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    closesAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    visibility: "unlisted",
+    passcode: "",
+    coverKind: "none",
+    coverRef: null,
+    coverMeta: null,
+    questions: [
+      {
+        prompt: "Pick one",
+        description: "",
+        pickType: "single",
+        maxPicks: 1,
+        options: [
+          {
+            label: "First",
+            description: "",
+            imageSource: "none",
+            imageUrl: "",
+            imageBlobKey: "",
+            imageAlt: "",
+          },
+          {
+            label: "Second",
+            description: "",
+            imageSource: "none",
+            imageUrl: "",
+            imageBlobKey: "",
+            imageAlt: "",
+          },
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 describe.skipIf(!enabled)("saveQuiz", () => {
   beforeAll(async () => {
     if (!sql) return;
@@ -61,50 +109,7 @@ describe.skipIf(!enabled)("saveQuiz", () => {
   it("creates, updates, and publishes a draft without trigger or timestamp failures", async () => {
     if (!sql || !saveQuiz) throw new Error("Integration database is not enabled");
 
-    const opensAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const closesAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-    const baseInput = {
-      eventId: null,
-      expectedDraftVersion: null,
-      saveAs: "draft" as const,
-      draftStep: 1,
-      title: "Timestamp regression poll",
-      description: "",
-      slug: "",
-      opensAt,
-      closesAt,
-      visibility: "unlisted" as const,
-      passcode: "",
-      coverKind: "none" as const,
-      coverRef: null,
-      coverMeta: null,
-      questions: [
-        {
-          prompt: "Pick one",
-          description: "",
-          pickType: "single" as const,
-          maxPicks: 1,
-          options: [
-            {
-              label: "First",
-              description: "",
-              imageSource: "none" as const,
-              imageUrl: "",
-              imageBlobKey: "",
-              imageAlt: "",
-            },
-            {
-              label: "Second",
-              description: "",
-              imageSource: "none" as const,
-              imageUrl: "",
-              imageBlobKey: "",
-              imageAlt: "",
-            },
-          ],
-        },
-      ],
-    };
+    const baseInput = buildInput({ title: "Timestamp regression poll" });
 
     const draft = await saveQuiz(baseInput);
     expect(draft.ok).toBe(true);
@@ -166,5 +171,46 @@ describe.skipIf(!enabled)("saveQuiz", () => {
     `;
     expect(storedPublished.status).toBe("scheduled");
     expect(storedPublished.draft_version).toBe(3);
+  });
+
+  it("writes updated_at from the database clock when the app clock lags", async () => {
+    if (!sql || !saveQuiz) throw new Error("Integration database is not enabled");
+
+    // created_at/updated_at come from the DB clock. Then the app clock is moved
+    // ten seconds back, so a `new Date()` write would land before created_at.
+    const eventId = crypto.randomUUID();
+    await sql`
+      insert into events (
+        id, creator_user_id, title, status, visibility, draft_step, draft_version,
+        opens_at, closes_at
+      ) values (
+        ${eventId}, ${userId}, 'Skewed clock draft', 'draft', 'unlisted', 1, 1,
+        clock_timestamp() + interval '1 hour',
+        clock_timestamp() + interval '2 hours'
+      )
+    `;
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() - 10_000);
+    try {
+      const saved = await saveQuiz(
+        buildInput({
+          eventId,
+          expectedDraftVersion: 1,
+          draftStep: 2,
+          title: "Skewed clock draft saved",
+        }),
+      );
+      expect(saved.ok).toBe(true);
+
+      const [row] = await sql`
+        select created_at, updated_at from events where id = ${eventId}
+      `;
+      expect(new Date(row.updated_at).getTime()).toBeGreaterThanOrEqual(
+        new Date(row.created_at).getTime(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

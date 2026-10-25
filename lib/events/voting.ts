@@ -377,7 +377,10 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
       );
 
       if (event.status === "scheduled") {
-        await tx.update(events).set({ status: "open" }).where(eq(events.id, event.id));
+        await tx
+          .update(events)
+          .set({ status: "open", updatedAt: sql`clock_timestamp()` })
+          .where(eq(events.id, event.id));
       }
 
       // A transaction that spans the deadline is rolled back rather than landing late.

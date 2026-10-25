@@ -64,7 +64,7 @@ async function createPoll({
 }: {
   pickType?: "single" | "top_n";
   maxPicks?: number;
-  status?: "open" | "closed";
+  status?: "open" | "closed" | "scheduled";
   visibility?: "unlisted" | "passcode";
 } = {}) {
   if (!sql) throw new Error("Integration database is not enabled");
@@ -150,6 +150,26 @@ describe.skipIf(!enabled)("submitVote integration", () => {
     });
     expect(topNResult).toMatchObject({ ok: false, reason: "invalid" });
     expect(await countBallots(topN.eventId)).toBe(0);
+  });
+
+  it("opens a scheduled poll when the app clock lags the database clock", async () => {
+    if (!sql || !submitVote) return;
+    const poll = await createPoll({ status: "scheduled" });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() - 10_000);
+    try {
+      const result = await submitVote({
+        eventId: poll.eventId,
+        answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+      });
+      expect(result).toMatchObject({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const [row] = await sql`select status from events where id = ${poll.eventId}`;
+    expect(row.status).toBe("open");
   });
 
   it("rejects a vote when a concurrent close owns the event lock first", async () => {

@@ -360,7 +360,10 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
             coverKind: input.coverKind,
             coverRef: normalizedCover!.coverRef,
             coverMeta: normalizedCover!.coverMeta,
-            updatedAt: now,
+            // `created_at` comes from the database clock, so `updated_at` must
+            // too: mixing app time with DB time can violate
+            // `events_updated_after_created_chk` whenever the two clocks drift.
+            updatedAt: sql`clock_timestamp()`,
           })
           .where(and(eq(events.id, id), eq(events.draftVersion, locked.draftVersion)));
         await tx.delete(questions).where(eq(questions.eventId, id));
