@@ -22,6 +22,7 @@ jobs:
     env:
       BASE_URL: ${{ inputs.base_url }}
       DATABASE_URL_TEST: ${{ secrets.NEON_TEST_DATABASE_URL }}
+      DATABASE_URL_UNPOOLED: ${{ secrets.NEON_TEST_DATABASE_URL }}
       ALLOW_TEST_DB_MUTATION: "1"
       # Hostname only (no credentials) so the pre-flight guard can refuse to
       # run the suites against the production database host.
@@ -38,8 +39,6 @@ jobs:
       - name: Require the production database hostname for the pre-flight guard
         run: test -n "$PRODUCTION_DATABASE_HOST"
       - name: Migrate the disposable test database
-        env:
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_TEST_DATABASE_URL }}
         run: npx drizzle-kit migrate
       - run: npx playwright install --with-deps chromium
       - run: npm run test:integration

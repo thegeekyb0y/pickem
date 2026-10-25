@@ -1,10 +1,11 @@
 import postgres from "postgres";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { assertNotProductionDatabase, resolveProductionDatabaseHosts, resolveTargetDatabaseHost } from "../../scripts/db-guard.mjs";
-import { applyTestDatabaseUrl, resolveTestDatabaseUrl } from "../helpers/local-env";
+import { applyTestDatabaseUrl, assertDatabaseSuitesEnabled, resolveTestDatabaseUrl } from "../helpers/local-env";
 
 const testUrl = resolveTestDatabaseUrl();
 const enabled = Boolean(testUrl && process.env.ALLOW_TEST_DB_MUTATION === "1");
+assertDatabaseSuitesEnabled("the quiz integrity suite");
 if (enabled && testUrl) {
   assertNotProductionDatabase({
     label: "the quiz integrity suite",

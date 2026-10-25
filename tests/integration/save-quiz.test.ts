@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { applyTestDatabaseUrl, resolveTestDatabaseUrl } from "../helpers/local-env";
+import { applyTestDatabaseUrl, assertDatabaseSuitesEnabled, resolveTestDatabaseUrl } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({
   sessionUserId: null as string | null,
@@ -26,6 +26,7 @@ vi.mock("next/headers", () => ({
 
 const testUrl = resolveTestDatabaseUrl();
 const enabled = Boolean(testUrl && process.env.ALLOW_TEST_DB_MUTATION === "1");
+assertDatabaseSuitesEnabled("the save-quiz suite");
 if (enabled && testUrl) {
   applyTestDatabaseUrl(testUrl);
 }

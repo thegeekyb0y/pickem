@@ -6,7 +6,7 @@ import {
   resolveProductionDatabaseHosts,
   resolveTargetDatabaseHost,
 } from "../../scripts/db-guard.mjs";
-import { resolveTestDatabaseUrl, applyTestDatabaseUrl } from "../helpers/local-env";
+import { resolveTestDatabaseUrl, applyTestDatabaseUrl, assertDatabaseSuitesEnabled } from "../helpers/local-env";
 
 const mocks = vi.hoisted(() => ({ userId: "pickem-integration-user", cookies: new Map<string, string>() }));
 
@@ -33,6 +33,7 @@ vi.mock("next/headers", () => ({
 
 const testUrl = resolveTestDatabaseUrl();
 const enabled = Boolean(testUrl && process.env.ALLOW_TEST_DB_MUTATION === "1");
+assertDatabaseSuitesEnabled("the voting integration suite");
 if (enabled && testUrl) {
   // Pre-flight: never run against the production database host.
   assertNotProductionDatabase({

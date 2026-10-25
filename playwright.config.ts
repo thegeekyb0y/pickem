@@ -8,6 +8,12 @@ loadLocalEnv();
 const baseURL = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const canRunAgainstTestBranch =
   process.env.ALLOW_TEST_DB_MUTATION === "1" && Boolean(process.env.DATABASE_URL_TEST);
+if (process.env.CI === "true" && !canRunAgainstTestBranch) {
+  throw new Error(
+    "CI is running Playwright without DATABASE_URL_TEST and ALLOW_TEST_DB_MUTATION=1; " +
+      "the end-to-end suite would be skipped.",
+  );
+}
 const useLocalServer = !process.env.BASE_URL && canRunAgainstTestBranch;
 if (process.env.BASE_URL) {
   const hostname = new URL(process.env.BASE_URL).hostname;

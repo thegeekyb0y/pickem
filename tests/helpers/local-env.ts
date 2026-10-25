@@ -28,3 +28,17 @@ export function applyTestDatabaseUrl(url: string): void {
   process.env.DATABASE_URL = url;
   process.env.DATABASE_URL_UNPOOLED = url;
 }
+
+/**
+ * Fails closed in CI: a green build must not come from skipping the database
+ * suites. Locally the suites may still skip when no disposable database is
+ * configured.
+ */
+export function assertDatabaseSuitesEnabled(label: string): void {
+  if (process.env.CI !== "true") return;
+  if (process.env.ALLOW_TEST_DB_MUTATION === "1" && resolveTestDatabaseUrl()) return;
+  throw new Error(
+    `CI is running ${label}, but the database suites are disabled. ` +
+      "Set DATABASE_URL_TEST and ALLOW_TEST_DB_MUTATION=1.",
+  );
+}

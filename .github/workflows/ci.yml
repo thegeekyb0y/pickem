@@ -10,13 +10,29 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: pickem
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d pickem"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/pickem
-      DATABASE_URL_TEST: ${{ secrets.NEON_TEST_DATABASE_URL }}
+      # Disposable database only. No Neon credentials or other secrets are used.
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/pickem
+      DATABASE_URL_TEST: postgresql://ci:ci@127.0.0.1:5432/pickem
+      DATABASE_URL_UNPOOLED: postgresql://ci:ci@127.0.0.1:5432/pickem
       ALLOW_TEST_DB_MUTATION: "1"
-      # Hostname only (no credentials) so the pre-flight guard can refuse to
-      # run the suites against the production database host.
-      PRODUCTION_DATABASE_HOST: ${{ secrets.NEON_PRODUCTION_DATABASE_HOST }}
+      # Non-target placeholder so the pre-flight guard has a production host to
+      # compare against without exposing a real database.
+      PRODUCTION_DATABASE_HOST: production.invalid
       BETTER_AUTH_SECRET: ci-only-not-a-production-secret
       BETTER_AUTH_URL: http://127.0.0.1:3000
       GOOGLE_CLIENT_ID: ci-placeholder
@@ -36,14 +52,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Migrate the disposable test database
-        if: env.DATABASE_URL_TEST != ''
-        env:
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_TEST_DATABASE_URL }}
         run: npx drizzle-kit migrate
       - run: npm run test:integration
       - run: npm run build
       - name: Install the end-to-end browser
-        if: env.DATABASE_URL_TEST != ''
         run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-        if: env.DATABASE_URL_TEST != ''
