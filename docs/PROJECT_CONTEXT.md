@@ -3,7 +3,7 @@
 A summary of what Pickem is, the decisions behind it, and where the work
 stands. Written so a fresh session can pick up without re-deriving the history.
 
-Last updated: 2026-10-23.
+Last updated: 2026-10-25.
 
 ## Stack
 
@@ -20,30 +20,60 @@ Last updated: 2026-10-23.
 
 ## Current repository state
 
-- `origin/main` is `b830cf7 Merge pull request #6 from
-  thegeekyb0y/feat/phase-2-poll-polish`. PRs #1–#6 are merged, so `main`
-  contains the multi-question builder, Phase 1 reliability fixes, and poll
-  polish phases 1–5. Production is expected to track `main`; confirm the Vercel
-  deployment before the smoke test.
-- Local `main` is aligned with `origin/main` at `b830cf7`.
-- `feat/share-slug-image-controls`, branched from `origin/main`, adds custom
-  event share slugs and Google-Forms-style cover/option image controls.
-- Local `feature/fluid-quiz-builder` is `cf101c5`, fully contained in
+- `origin/main` is `6921175 docs: record share slugs and image controls`.
+  PRs #1–#6 are merged, so `main` contains the multi-question builder, Phase 1
+  reliability fixes, poll polish phases 1–5, share slugs, and image controls.
+- Local `main` is three commits ahead of `origin/main` and has not been pushed:
+  `c63b369 fix(events): write updated_at from the database clock`,
+  `fe346e5 fix(db): validate option changes on published quizzes`, and
+  `464e733 ci: run database suites against a Postgres service`. Task D (slug
+  tests plus this doc update) is the next local commit.
+- Production tracks `origin/main`. Nothing from these four local commits is
+  deployed, and no migration has been applied to production since `0008`.
+- Migration state:
+  - `0000`–`0008` are applied to Neon production.
+  - `0009_fix_option_publish_validation.sql` replaces only
+    `validate_published_quiz_questions()`. It is reviewed and rehearsed but
+    **not applied to production**; the owner will apply it.
+  - The contract migration is renumbered to `0010`. It must not be authored
+    with `drizzle-kit generate` until the snapshot chain is rebuilt (see
+    “Migration snapshots” below).
+- Safety branches still exist: `backup/wip-quiz-builder` (`f3abaa6`) and
+  `backup/pre-split-37cc032` (`37cc032`). Local
+  `feature/fluid-quiz-builder` (`cf101c5`) is fully contained in
   `origin/main`.
-- Safety branches: `backup/wip-quiz-builder` (`f3abaa6`) and
-  `backup/pre-split-37cc032` (`37cc032`)
-- Phase 1 reliability fixes, merged as PR #4, cover the question/option
-  timestamp constraint failure, draft URL sync on first save, the stable
-  autosave status surface, and safer publish/save error copy.
-- Migration `drizzle/0006_expand_quiz_questions.sql` is applied to Neon
-  production. The legacy model was backfilled into questions, options, and
-  ballot answers. Migration `0007` is applied to production and replaces the
-  stale question-guard trigger whose `event_id` variable collided with
-  `votes.event_id`. Migration `0008` adds the nullable unique share slug; the
-  planned contract migration is now `0009` and still needs a fresh production
-  create/vote smoke test plus a Neon backup branch.
-- Local test container `pickem-test-pg` is running on port `55432`; integration
-  and e2e suites point at it through `DATABASE_URL_TEST`.
+- CI was previously green only because the database suites were skipped: the
+  `NEON_TEST_DATABASE_URL` secret was unset, so migrate and integration
+  “succeeded” in 0 s with every test skipped, and the browser/e2e steps were
+  skipped too. Run `40104587319` on `6921175` is that false green.
+- CI now starts a disposable `postgres:17-alpine` service container and uses
+  no Neon secrets. The new workflow has not run on GitHub yet because nothing
+  has been pushed.
+- Local test container `pickem-test-pg` runs on `127.0.0.1:55432`. The base
+  test database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
+  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`) are all
+  at migration `0009` with 10 recorded migrations. Integration and e2e suites
+  point at the base database through `DATABASE_URL_TEST`.
+
+## Migration snapshots
+
+Drizzle stores a JSON snapshot per generated migration in `drizzle/meta/`.
+Snapshots exist only through `0004_snapshot.json`; **`0005` through `0009` have
+no snapshot**. Migrations `0005`–`0009` were authored by hand (`--custom`) or
+edited after generation, which is why the chain is incomplete.
+
+Consequences:
+
+- `npx drizzle-kit generate` diffs against the last snapshot it can find
+  (`0004`), so it would emit SQL that repeats changes already applied by
+  `0005`–`0009`. Do not run it until the chain is rebuilt.
+- A generated `meta/0009_snapshot.json` was produced during this work and
+  discarded: it was a stale copy of `0004` and would have made the problem
+  worse.
+- `npx drizzle-kit migrate` is unaffected; it applies the journal entries in
+  order and is what CI and local rehearsal use.
+- Rebuild the snapshots from the real schema (or squash the hand-written
+  migrations into a fresh baseline) **before** authoring `0010`.
 
 ## Commit map
 
@@ -65,15 +95,20 @@ Last updated: 2026-10-23.
 | `0fc4317` | feature branch | Voting/results/Discover surfaces |
 | `9de50a0` | feature branch | Quiz and load-flow tests |
 | `ecc8887`–`eaa8971` | `feat/phase-2-poll-polish` | Poll polish phases 1–5 (PR #5) |
-| `HEAD` | feature branch | Implementation-state docs |
+| `3b5103b` | `main` | Human-readable share slugs |
+| `b1e8cb9` | `main` | Hover image controls and paste |
+| `6921175` | `main` / `origin/main` | Share-slug and image-control docs |
+| `c63b369` | local `main` | Database clock for `updated_at` writes |
+| `fe346e5` | local `main` | `0009`: validate option changes on published quizzes |
+| `464e733` | local `main` | CI runs the database suites against Postgres |
 
 ## Domain model
 
-Production/deployed model: `events` → `options`, `votes` → `vote_picks`.
-The WIP branch keeps `events` as the quiz identity and adds required
-`questions`; questions own options and each question has its own pick type.
-`ballot_answers` stores selected options per question while `votes` remains the
-quiz-level ballot/identity row.
+The deployed model since `0006` keeps `events` as the quiz identity and adds
+required `questions`; questions own options and each question has its own pick
+type. `ballot_answers` stores selected options per question while `votes`
+remains the quiz-level ballot/identity row. Legacy `vote_picks` and
+`votes.option_id` still exist in production and are removed by `0010`.
 
 | Concept | Where |
 | --- | --- |
@@ -97,6 +132,15 @@ decides whether voting is open, not the application server's clock. A ballot
 that would land after the closing time is rolled back at the end of the
 transaction.
 
+**Database clock for write timestamps.** Every `updated_at` write uses
+`clock_timestamp()`, not a JavaScript `new Date()`. This covers `saveQuiz`,
+the scheduled→open transition in `lib/events/voting.ts`, and the Drizzle
+`$onUpdate` for `events`, `questions`, and `options` (now
+``sql`clock_timestamp()` ``). App-clock writes could land before `created_at`
+when the server clock lagged the database, tripping the
+`updated_at >= created_at` checks. `tests/integration/save-quiz.test.ts` has a
+skew regression test that moves the app clock ten seconds back.
+
 **Shared lock for voters, exclusive lock for close/edit.** A ballot takes
 `FOR KEY SHARE` on the quiz/event row. Close and date edits take `FOR UPDATE`,
 so a ballot either commits before the close or is rejected.
@@ -104,7 +148,8 @@ so a ballot either commits before the close or is rejected.
 
 **Versioned result snapshots.** A snapshot's version is the number of submitted
 ballots. Submitted ballots are never deleted, so the version is monotonic.
-WIP results are snapshotted per question. Closed results are cached as final.
+Open-quiz results are snapshotted per question. Closed results are cached as
+final.
 
 **Caching follows quiz state.** Open quizzes use a short Redis cache with
 single-flight; closed results use a long TTL. Public results use
@@ -142,10 +187,18 @@ now but should not block cover work. The exact wireframe radii and aspect ratio
 are still deferred.
 
 **Migration sequence.** No legacy compatibility validator is needed because
-there are no real users. Migration 1 expands/backfills questions,
-question-owned options, ballot answers, and covers. Deploy new code after
-migration 1. Migration 2 contracts legacy fields/tables only after the new model
-is proven. Reordering constraints are `DEFERRABLE INITIALLY DEFERRED`.
+there are no real users. `0006` expanded/backfilled questions, question-owned
+options, ballot answers, and covers; deploy code after it. `0009` repairs the
+option-change validation that `0006` missed. `0010` contracts legacy
+fields/tables only after the new model is proven in production. Reordering
+constraints are `DEFERRABLE INITIALLY DEFERRED`.
+
+**Legacy `options.event_id`.** The column still exists but the application
+never writes it, so it is `NULL` for every app-created option. No active trigger
+reads it: the trigger functions resolve the quiz through
+`questions.event_id`. Two historical references remain in
+`db/schema/triggers.ts` (lines 30 and 281), which is explicitly not exported
+from the active schema. Drop the column in `0010`; nothing else needs to change.
 
 **Account deletion is last.** Strip PII, delete sessions/accounts/drafts,
 retain a tombstone user so ballots stay intact, and close or unlist the user's
@@ -160,12 +213,12 @@ only) has its own migration gate.
   label, presets, disabled past dates, and route-lazy loading.
 - Fluid navigation, URL-backed Discover tabs, Fluid Profile inputs/badges, and
   Fluid owner actions with confirmation dialogs.
-- WIP schema: `questions`, `options.question_id`, `ballot_answers`, cover
+- Schema: `questions`, `options.question_id`, `ballot_answers`, cover
   fields, `draftVersion`, and updated relations.
 - Migration `0006`: expand/backfill, deferrable question/option ordering,
   question-level triggers, ballot immutability/validation, caps. Rehearsed
   locally with legacy single-choice and Top-N fixtures, then applied to Neon.
-- WIP quiz builder: stacked questions, independent pick types, drag/up-down
+- Quiz builder: stacked questions, independent pick types, drag/up-down
   reorder, duplicate/delete confirmation, autosave with version conflicts.
 - Phase 1 reliability fixes: question/option inserts use database timestamps,
   first-save draft URLs sync correctly, autosave failures stop retry loops and
@@ -181,7 +234,7 @@ only) has its own migration gate.
   option images use an inline thumbnail button plus popover; the cover editor is
   compact with a persisted focal point; and the whole Discover card is
   clickable with Lucide metadata icons.
-- WIP cover flow: preset patterns, client image preparation, sharp/WebP upload,
+- Cover flow: preset patterns, client image preparation, sharp/WebP upload,
   focal-point rendering on cards and poll pages, and legacy Unsplash rendering.
   The picker no longer offers Unsplash, but its route, cache, credit, and
   metadata paths remain for existing covers.
@@ -190,36 +243,57 @@ only) has its own migration gate.
   additive (migration `0008`). The cover preview and option image panel accept
   uploads, clipboard paste, and removal, with a hover/focus toolbar on the
   cover and an undo window for removal.
-- WIP multi-question voting: one stacked page, answered count, atomic batched
+- Multi-question voting: one stacked page, answered count, atomic batched
   answer insert, per-question results, cache/version updates.
-- WIP tests and load scripts: quiz validation, quiz integrity, date picker,
+- Tests and load scripts: quiz validation, quiz integrity, date picker,
   updated voting/concurrency/results tests and request payloads.
+- Database-clock writes: `saveQuiz`, the scheduled→open transition, and the
+  Drizzle `$onUpdate` hooks all use `clock_timestamp()`; a skew regression test
+  covers it.
+- Migration `0009`: replaces `validate_published_quiz_questions()` so option
+  changes on a published quiz are rejected. It is the only function `0009`
+  touches and it is not yet applied to production.
+- CI: unit and integration are separate steps; integration runs against a
+  disposable Postgres service container, and both the Vitest guard and
+  `playwright.config.ts` fail closed in CI if the database suites would skip.
 
 ## Rehearsal and test status
 
-- Lint, typecheck, unit tests, integration tests, Playwright tests, and
-  production build pass on PR #5. Unit tests: 13 files / 66 tests. Integration
-  tests: 4 files / 16 tests, including the `save-quiz` draft/publish regression.
-  Playwright: 4 tests.
-- Migration `0006` passed local rehearsal against `pickem-test-pg`: migrations
-  `0000`–`0005`, legacy seed data, then `drizzle-kit migrate` for `0006`.
-  It is applied to Neon production. The old production trigger function kept an
-  `event_id` variable because `0006` was edited after being applied; `0007`
-  forwards the corrected `quiz_id` definition without rewriting history.
-- PR #5 re-verification: lint, typecheck, 66 unit tests, 16 integration tests,
-  production build, and all 4 Playwright tests pass. Integration/e2e use the
-  local `pickem-test-pg` container and require `ALLOW_TEST_DB_MUTATION=1`.
+- Unit: **14 files / 75 tests** pass. The whole suite in one process exceeds the
+  90 s command budget because of import time, so it is verified as three split
+  runs (8 files/35 tests, 4 files/34 tests, 2 files/6 tests).
+- Integration: **5 files / 31 tests** pass on three databases — the base test
+  database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
+  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`). Files:
+  `voting`, `save-quiz`, `quiz-integrity`, `concurrency`, `slug-route`.
+- Playwright: **5 tests in 4 files**; `share-slug` passed 1/1. The full e2e run
+  needs port 3000 free and a single worker.
+- Lint, typecheck, and workflow YAML parse pass. The production build is part of
+  the new CI workflow but has not been re-run on GitHub.
+- Migration rehearsal: fresh `0000`–`0009` and upgrade `0008`→`0009` both end at
+  migration `0009` with 10 recorded migrations. `pg_dump --schema-only` output is
+  **identical** for the two databases (1342 lines), so `0009` behaves the same
+  on a fresh chain and an upgraded one.
+- `0009` adds 5 `quiz-integrity` gap tests, including the option-publish
+  validation that previously let a published quiz's options be changed.
+- Performance: one `saveQuiz` publish of 20 questions × 8 options (160 options)
+  took **810.1 ms** against the local test container. This is a single-sample
+  measurement, not a benchmark.
+- Known flake: the passcode e2e failed once on a cold dev-server start and then
+  passed 3/3. No trace was retained because Playwright clears `test-results`;
+  treat it as a cold-start timing issue until it recurs.
+- Not verified: the new CI workflow has not run on GitHub (nothing pushed); the
+  `0009` production migration and a production create/vote smoke test are
+  pending; Phase 3 cookie-forging tests were deliberately skipped.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
   “closed” mapping, ambiguous PL/pgSQL `event_id` variable in a trigger, a
-  Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, and
-  an invalid `Intl.DateTimeFormat` option plus locale hydration mismatch.
-- PR #5 contains the Phase 2 pass and follow-up phases 1–5, with no migration.
+  Playwright helper reading `DATABASE_URL_TEST` before `.env.local` loaded, an
+  invalid `Intl.DateTimeFormat` option plus locale hydration mismatch, and
+  `updated_at` written from a lagging app clock.
 - Post-PR #6 share-slug/image-control work: lint, typecheck, production build,
-  and 75 unit tests pass locally. Migration `0008` is not applied yet, so
-  database-backed and Playwright suites still need a disposable branch run.
-  Visual verification of the flat selected tab and cover toolbar used a
-  temporary local route that was removed afterward.
+  and the unit suite pass locally. Visual verification of the flat selected tab
+  and cover toolbar used a temporary local route that was removed afterward.
 - User-facing copy now says poll/response; identifiers such as `quiz_id`,
   `saveQuiz`, `home:polls`, and `poll-options/` remain intentionally unchanged.
 - Earlier edits failed with `Unknown: FileSystem.writeFile` on several files,
@@ -233,33 +307,36 @@ only) has its own migration gate.
   open.
 - Social link and account deletion are not implemented.
 - Docs previously claimed quiz work had not started; this file and the quiz plan
-  are now the source of truth for the WIP state.
+  are now the source of truth for the current state.
 
 ## Known gaps and next steps
 
-1. **Ship the share-slug/image-control branch.** Smoke-test create/autosave/
-   reload/publish/vote, slug availability and canonical links, cover/option
-   paste-and-delete, the compact cover editor and focal point, and
-   Discover-card navigation on a preview. Apply migration `0008` first.
-2. **Finalize cover artwork.** Replace the remaining generated preset gradients
-   with the owner-supplied pattern/preset artwork when it exists and confirm the
-   final wireframe aspect ratio.
-3. **Migration `0009` contract.** Drop legacy `vote_picks`, `votes.option_id` /
+1. **Apply `0009` to production.** The owner applies it; it is not applied here.
+   Then run a production create/vote smoke test before any contract work.
+2. **Push and watch the new CI.** Nothing is pushed yet. The first run of the
+   Postgres-service workflow is the real proof that the suites run rather than
+   skip; confirm the integration step reports tests instead of 0 s.
+3. **Rebuild the Drizzle snapshots.** Snapshots `0005`–`0009` are missing, so
+   `drizzle-kit generate` would diff against `0004` and emit duplicate SQL.
+   Rebuild or squash the chain before authoring `0010`.
+4. **Migration `0010` contract.** Drop legacy `vote_picks`, `votes.option_id` /
    `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
-   only after a production create/vote smoke test. Keep it separate from UI work
-   and reconcile the missing Drizzle snapshots first.
-4. **Edit published polls.** Implement the edit rules, edited marker, cache
+   only after the production smoke test and the snapshot rebuild.
+5. **Edit published polls.** Implement the edit rules, edited marker, cache
    invalidation, and immutable question/options after votes with concurrency
    tests.
-5. **Social link.** Separate migration gate for platform + handle constrained to
+6. **Finalize cover artwork.** Replace the remaining generated preset gradients
+   with the owner-supplied pattern/preset artwork when it exists and confirm the
+   final wireframe aspect ratio.
+7. **Social link.** Separate migration gate for platform + handle constrained to
    HTTPS `instagram.com` / `x.com`.
-6. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
+8. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
    retain a tombstone user, and close/unlist open polls.
-7. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
+9. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
    preview deployment, and replace ~2-second polling with WebSockets when the
    edge-request cost justifies it. Ranked scoring remains undefined.
-8. **Repository hygiene.** Delete merged feature branches after their PRs land
-   and keep new work off merged branches.
+10. **Repository hygiene.** Delete merged feature branches after their PRs land
+    and keep new work off merged branches.
 
 ## Resume checklist
 
@@ -268,15 +345,18 @@ only) has its own migration gate.
    landed.
 3. Never apply a migration, start Docker/Postgres, push, or deploy without
    explicit approval.
-4. Keep local commits small and logical. Do not push the WIP commit as final.
-5. When editing fails twice, stop and report the exact error rather than
+4. Before any database command, assert `DATABASE_URL_TEST` resolves to loopback;
+   before e2e, assert port 3000 is free and use one worker.
+5. Keep local commits small and logical. Do not push until the owner reviews.
+6. When editing fails twice, stop and report the exact error rather than
    looping.
 
 ## Time estimate
 
-With the toolchain behaving: roughly **4–6 hours** for the remaining quiz
-engineering, plus **1–2 hours** for migration rehearsal and DB-backed tests.
-CI and review may add elapsed time.
+The quiz engineering and DB-backed test work are done. What remains is
+owner-gated: apply `0009` and smoke-test production (under an hour), push and
+watch the first real CI run, rebuild the Drizzle snapshots, then author `0010`.
+Treat the snapshot rebuild as the risky item; budget a focused session for it.
 
 ## Environment notes
 
@@ -288,7 +368,15 @@ CI and review may add elapsed time.
   configured with `BETTER_AUTH_TRUSTED_ORIGINS` (production URL only in
   production).
 - `DATABASE_URL_TEST` must point at a disposable branch. The test suites refuse
-  to run when the target host matches any known production host.
+  to run when the target host matches any known production host; locally it must
+  resolve to loopback (`127.0.0.1`/`localhost`). Assert the host before every DB
+  command.
+- `npm test` runs unit tests only. Use `npm run test:integration` for the
+  database suites; `npm run test:e2e` for Playwright. In CI both database steps
+  fail closed if `DATABASE_URL_TEST` or `ALLOW_TEST_DB_MUTATION=1` is missing.
+- `npx drizzle-kit migrate` applies the journal in order and is safe. Do not run
+  `npx drizzle-kit generate` until the snapshot chain is rebuilt; see
+  “Migration snapshots”.
 - npm 12 blocks dependency scripts by default. `package.json` carries
   `allowScripts` entries for `esbuild` and `unrs-resolver`; use an isolated
   user-config for installs when needed. Do not weaken the global npm policy.

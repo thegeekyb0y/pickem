@@ -214,4 +214,82 @@ describe.skipIf(!enabled)("saveQuiz", () => {
       vi.useRealTimers();
     }
   });
+
+  it("persists a normalized slug, allows re-saving it, and rejects duplicates", async () => {
+    if (!sql || !saveQuiz) throw new Error("Integration database is not enabled");
+
+    const first = await saveQuiz(
+      buildInput({ title: "Slug poll", slug: "  Friday-Trivia!  " }),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.slug).toBe("friday-trivia");
+
+    const [stored] = await sql`select slug from events where id = ${first.eventId}`;
+    expect(stored.slug).toBe("friday-trivia");
+
+    const resaved = await saveQuiz(
+      buildInput({
+        eventId: first.eventId,
+        expectedDraftVersion: first.draftVersion,
+        draftStep: 2,
+        title: "Slug poll",
+        slug: "friday-trivia",
+      }),
+    );
+    expect(resaved.ok).toBe(true);
+
+    const duplicate = await saveQuiz(
+      buildInput({ title: "Duplicate slug poll", slug: "friday-trivia" }),
+    );
+    expect(duplicate.ok).toBe(false);
+    if (duplicate.ok) return;
+    expect(duplicate.errors.slug).toBe("That link is already taken.");
+
+    const nullOne = await saveQuiz(buildInput({ title: "No slug one", slug: "" }));
+    const nullTwo = await saveQuiz(buildInput({ title: "No slug two", slug: "" }));
+    expect(nullOne.ok && nullTwo.ok).toBe(true);
+    if (!nullOne.ok || !nullTwo.ok) return;
+    expect(nullOne.slug).toBeNull();
+    expect(nullTwo.slug).toBeNull();
+  });
+
+  it("rejects reserved, malformed, and UUID-shaped slugs before writing", async () => {
+    if (!sql || !saveQuiz) throw new Error("Integration database is not enabled");
+
+    for (const slug of ["ab", "new", crypto.randomUUID()]) {
+      const result = await saveQuiz(buildInput({ title: `Invalid slug ${slug}`, slug }));
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+      expect(result.errors.slug).toBeTruthy();
+    }
+
+    const [{ count }] = await sql`
+      select count(*)::int as count from events
+      where creator_user_id = ${userId} and title like 'Invalid slug %'
+    `;
+    expect(count).toBe(0);
+  });
+
+  it("enforces slug format and uniqueness at the database level", async () => {
+    if (!sql) throw new Error("Integration database is not enabled");
+    const insert = (slug: string) => sql!`
+      insert into events (
+        creator_user_id, title, status, visibility, opens_at, closes_at, slug
+      ) values (
+        ${userId}, 'DB slug check', 'draft', 'unlisted',
+        clock_timestamp() + interval '1 hour',
+        clock_timestamp() + interval '2 hours',
+        ${slug}
+      )
+    `;
+
+    await expect(insert("Bad Slug")).rejects.toThrow(/events_slug_format_chk/);
+    await expect(insert("ab")).rejects.toThrow(/events_slug_format_chk/);
+    await expect(insert("a".repeat(49))).rejects.toThrow(/events_slug_format_chk/);
+
+    const unique = `db-${crypto.randomUUID().slice(0, 8)}`;
+    await insert(unique);
+    await expect(insert(unique)).rejects.toThrow(/events_slug_unique/);
+  });
 });

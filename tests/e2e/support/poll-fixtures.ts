@@ -53,7 +53,14 @@ export async function createPollFixture(
     passcode,
     pickType = "single",
     maxPicks = 1,
-  }: { visibility?: string; passcode?: string; pickType?: string; maxPicks?: number } = {},
+    slug,
+  }: {
+    visibility?: string;
+    passcode?: string;
+    pickType?: string;
+    maxPicks?: number;
+    slug?: string | null;
+  } = {},
 ): Promise<PollFixture> {
   const eventId = randomUUID();
   const userId = `pickem-e2e-${randomUUID()}`;
@@ -71,12 +78,13 @@ export async function createPollFixture(
     await tx`
       insert into events (
         id, creator_user_id, title, description, status, visibility, passcode_hash,
-        opens_at, closes_at
+        opens_at, closes_at, slug
       ) values (
         ${eventId}, ${userId}, ${`E2E poll ${eventId.slice(0, 8)}`},
         'Playwright fixture', 'open', ${visibility},
         ${passcode ? await hashPasscode(passcode) : null},
-        clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes'
+        clock_timestamp() - interval '1 minute', clock_timestamp() + interval '15 minutes',
+        ${slug ?? null}
       )
     `;
     await tx`
