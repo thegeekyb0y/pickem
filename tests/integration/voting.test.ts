@@ -8,7 +8,12 @@ import {
 } from "../../scripts/db-guard.mjs";
 import { resolveTestDatabaseUrl, applyTestDatabaseUrl, assertDatabaseSuitesEnabled } from "../helpers/local-env";
 
-const mocks = vi.hoisted(() => ({ userId: "pickem-integration-user", cookies: new Map<string, string>() }));
+const mocks = vi.hoisted(() => ({
+  userId: "pickem-integration-user",
+  cookies: new Map<string, string>(),
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
   auth: { api: { getSession: async () => ({ user: { id: mocks.userId } }) } },
@@ -19,7 +24,10 @@ vi.mock("@/lib/rate-limit", () => ({
   limitVoteByIdentity: async () => true,
   limitPasscodeAttempt: async () => true,
 }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "x-real-ip": "127.0.0.1" }),
   cookies: async () => ({
@@ -221,6 +229,22 @@ describe.skipIf(!enabled)("submitVote integration", () => {
       ok: false,
       reason: "locked",
     });
+  });
+
+  it("expires the Discover listing cache after a successful ballot", async () => {
+    if (!submitVote) return;
+    mocks.revalidateTag.mockClear();
+    const poll = await createPoll();
+
+    const result = await submitVote({
+      eventId: poll.eventId,
+      answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("home:polls", { expire: 0 });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/discover");
   });
 
   it("keeps snapshot version monotonic by rejecting submitted-ballot deletion", async () => {
