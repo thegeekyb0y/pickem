@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,10 +21,12 @@ export default function OwnerControls({
   eventId,
   isDraft,
   isLive,
+  isPublished,
 }: {
   eventId: string;
   isDraft: boolean;
   isLive: boolean;
+  isPublished: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<ActionMode | null>(null);
@@ -54,13 +57,21 @@ export default function OwnerControls({
     router.refresh();
   }
 
-  if (!isDraft && !isLive) return null;
+  if (!isDraft && !isLive && !isPublished) return null;
 
   const dialogOpen = mode !== null;
 
   return (
     <>
       <div className="flex flex-wrap gap-2">
+        {isPublished ? (
+          <Link
+            href={`/events/${eventId}/edit`}
+            className="font-fluid inline-flex min-h-11 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            Edit poll
+          </Link>
+        ) : null}
         {isLive ? (
           <Button
             type="button"

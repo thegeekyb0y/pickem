@@ -15,11 +15,13 @@ import {
   questions,
   type QuizCoverKind,
   type QuizCoverMeta,
+  votes,
 } from "@/db/schema/app";
 import { parseUtcInstant } from "@/lib/events/date-time";
 import { validateEventSlug } from "@/lib/events/slug";
 import { getQuizCoverPreset } from "@/lib/quiz/cover-presets";
 import { validateQuizQuestions, type QuizOptionInput } from "@/lib/events/quiz-validation";
+import { invalidateResultCache } from "@/lib/live/result-cache";
 import { limitQuizCoverUpload } from "@/lib/rate-limit";
 
 const scrypt = promisify(scryptCallback);
@@ -470,11 +472,331 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   revalidatePath("/events/drafts");
   revalidatePath("/profile");
   if (input.saveAs === "publish") {
-    revalidateTag("home:polls", "max");
+    revalidateTag("home:polls", { expire: 0 });
+    revalidatePath("/");
     revalidatePath("/discover");
   }
   revalidatePath(`/events/${transactionResult.eventId}`);
   return { ...transactionResult };
+}
+
+export type UpdatePublishedQuizInput = {
+  eventId: string;
+  expectedDraftVersion: number;
+  title: string;
+  description: string;
+  opensAt: string;
+  closesAt: string;
+  coverKind: QuizCoverKind;
+  coverRef: string | null;
+  coverMeta: QuizCoverMeta | null;
+  /** Question payloads are only accepted while no ballots exist. */
+  questions?: unknown;
+};
+
+export type UpdatePublishedQuizResult =
+  | { ok: true; eventId: string; draftVersion: number; edited: boolean }
+  | { ok: false; errors: Record<string, string>; formError: string | null };
+
+type UpdatePublishedQuizTransactionResult =
+  | { ok: true; eventId: string; draftVersion: number; edited: boolean }
+  | { ok: false; reason: "unavailable" | "draft" }
+  | { ok: false; reason: "conflict"; version: number }
+  | { ok: false; reason: "invalid"; errors: Record<string, string> };
+
+/**
+ * Owner edits for a published poll.
+ *
+ * Takes the same exclusive row lock as `closeEvent`, so an edit either lands
+ * before an in-flight ballot commits or waits for it. Unlike `saveQuiz` this
+ * never changes slug, visibility, or passcode: those are locked after publish.
+ */
+export async function updatePublishedQuiz(
+  input: UpdatePublishedQuizInput,
+): Promise<UpdatePublishedQuizResult> {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    typeof input.eventId !== "string" ||
+    typeof input.title !== "string" ||
+    typeof input.description !== "string" ||
+    typeof input.opensAt !== "string" ||
+    typeof input.closesAt !== "string" ||
+    !Number.isInteger(input.expectedDraftVersion) ||
+    typeof input.coverKind !== "string" ||
+    (input.coverRef !== null && typeof input.coverRef !== "string")
+  ) {
+    return {
+      ok: false,
+      errors: {},
+      formError: "Some poll details were invalid. Review the fields and try again.",
+    };
+  }
+
+  // Publishing freezes the identity fields. Reject attempts to smuggle them in
+  // rather than silently dropping them.
+  const lockedFields = ["slug", "visibility", "passcode", "status", "saveAs", "draftStep"];
+  if (lockedFields.some((field) => field in (input as Record<string, unknown>))) {
+    return {
+      ok: false,
+      errors: {},
+      formError: "Links, visibility and passcodes can’t be changed after publishing.",
+    };
+  }
+
+  if (!UUID_PATTERN.test(input.eventId)) {
+    return { ok: false, errors: {}, formError: "This poll is unavailable." };
+  }
+
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, errors: {}, formError: "Sign in to edit this poll." };
+
+  const errors: Record<string, string> = {};
+  const title = input.title.trim();
+  const description = input.description.trim();
+  if (title.length === 0) errors.title = "Give your poll a title.";
+  else if (title.length > 160) errors.title = "Keep titles to 160 characters or fewer.";
+
+  const normalizedCover = normalizeCover(input.coverKind, input.coverRef, input.coverMeta);
+  if (!normalizedCover) errors.cover = "Choose a valid poll cover.";
+
+  const opensAt = parseUtcInstant(input.opensAt);
+  const closesAt = parseUtcInstant(input.closesAt);
+  if (!opensAt) errors.opensAt = "Choose a valid date and time.";
+  if (!closesAt) errors.closesAt = "Choose a valid date and time.";
+  if (opensAt && closesAt && closesAt <= opensAt) {
+    errors.closesAt = "Closing time must be after opening time.";
+  }
+
+  const hasQuestions = Object.prototype.hasOwnProperty.call(input, "questions");
+  let normalizedQuestions: ReturnType<typeof validateQuizQuestions>["questions"] = [];
+  if (hasQuestions) {
+    const validation = validateQuizQuestions(input.questions, true);
+    Object.assign(errors, validation.errors);
+    normalizedQuestions = validation.questions;
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { ok: false, errors, formError: null };
+  }
+
+  let transactionResult: UpdatePublishedQuizTransactionResult;
+  try {
+    transactionResult = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.id, input.eventId), eq(events.creatorUserId, userId)))
+        .for("update");
+      if (!locked) return { ok: false as const, reason: "unavailable" as const };
+      if (locked.status === "draft") return { ok: false as const, reason: "draft" as const };
+      if (locked.draftVersion !== input.expectedDraftVersion) {
+        return { ok: false as const, reason: "conflict" as const, version: locked.draftVersion };
+      }
+
+      const [{ now }] = await tx
+        .select({ now: sql<string | Date>`clock_timestamp()` })
+        .from(events)
+        .where(eq(events.id, locked.id));
+      const dbNow = new Date(now);
+      const [{ ballots }] = await tx
+        .select({ ballots: sql<number>`count(*)::int` })
+        .from(votes)
+        .where(eq(votes.eventId, locked.id));
+      const ballotCount = Number(ballots);
+      const closed = locked.status === "closed" || locked.closesAt <= dbNow;
+      const ruleErrors: Record<string, string> = {};
+
+      if (hasQuestions && ballotCount > 0) {
+        return {
+          ok: false as const,
+          reason: "invalid" as const,
+          errors: {
+            questions: "Questions and options can’t be changed after the first response.",
+          },
+        };
+      }
+
+      if (closed) {
+        if (opensAt!.getTime() !== locked.opensAt.getTime()) {
+          ruleErrors.opensAt = "Voting has already closed, so the start time can’t change.";
+        }
+        if (closesAt!.getTime() !== locked.closesAt.getTime()) {
+          ruleErrors.closesAt = "Voting has already closed, so the end time can’t change.";
+        }
+      } else {
+        if (closesAt!.getTime() <= dbNow.getTime()) {
+          ruleErrors.closesAt = "Closing time must be in the future.";
+        }
+        if (closesAt! <= opensAt!) {
+          ruleErrors.closesAt = "Closing time must be after opening time.";
+        }
+        if (locked.opensAt.getTime() <= dbNow.getTime()) {
+          // Once the window has opened the start is historical; only moving it
+          // earlier could rewrite when ballots were accepted. Freeze it.
+          if (opensAt!.getTime() !== locked.opensAt.getTime()) {
+            ruleErrors.opensAt = "Voting has already opened, so the start time can’t change.";
+          }
+        } else if (ballotCount > 0 && opensAt!.getTime() > dbNow.getTime()) {
+          ruleErrors.opensAt = "The start time can’t move into the future once responses exist.";
+        }
+      }
+
+      if (Object.keys(ruleErrors).length > 0) {
+        return { ok: false as const, reason: "invalid" as const, errors: ruleErrors };
+      }
+
+      const nextStatus =
+        closed || locked.status === "cancelled"
+          ? locked.status
+          : locked.status === "scheduled" && opensAt! <= dbNow
+            ? "open"
+            : locked.status;
+      const nextDescription = description === "" ? null : description;
+      const dateChanged =
+        opensAt!.getTime() !== locked.opensAt.getTime() ||
+        closesAt!.getTime() !== locked.closesAt.getTime();
+      const eventChanged =
+        title !== locked.title ||
+        nextDescription !== locked.description ||
+        input.coverKind !== locked.coverKind ||
+        normalizedCover!.coverRef !== locked.coverRef ||
+        JSON.stringify(normalizedCover!.coverMeta) !== JSON.stringify(locked.coverMeta) ||
+        dateChanged ||
+        nextStatus !== locked.status;
+
+      const draftVersion = locked.draftVersion + 1;
+      await tx
+        .update(events)
+        .set({
+          title,
+          description: nextDescription,
+          opensAt: opensAt!,
+          closesAt: closesAt!,
+          status: nextStatus,
+          coverKind: input.coverKind,
+          coverRef: normalizedCover!.coverRef,
+          coverMeta: normalizedCover!.coverMeta,
+          draftVersion,
+          updatedAt: sql`clock_timestamp()`,
+          editedAt: eventChanged ? sql`clock_timestamp()` : locked.editedAt,
+        })
+        .where(eq(events.id, locked.id));
+
+      let questionsChanged = false;
+      if (hasQuestions && normalizedQuestions.length > 0) {
+        const storedQuestions = await tx.query.questions.findMany({
+          where: eq(questions.eventId, locked.id),
+          with: { options: { orderBy: (table, { asc }) => [asc(table.sortOrder)] } },
+          orderBy: (table, { asc }) => [asc(table.sortOrder)],
+        });
+        const storedShape = storedQuestions.map((question) => ({
+          prompt: question.prompt,
+          description: question.description ?? "",
+          pickType: question.pickType,
+          maxPicks: question.maxPicks,
+          options: question.options.map((option) => ({
+            label: option.label,
+            description: option.description ?? "",
+            imageSource: option.imageSource ?? "none",
+            imageUrl: option.imageUrl ?? "",
+            imageBlobKey: option.imageBlobKey ?? "",
+            imageAlt: option.imageAlt ?? "",
+          })),
+        }));
+        questionsChanged = JSON.stringify(storedShape) !== JSON.stringify(normalizedQuestions);
+
+        if (questionsChanged) {
+          await tx.delete(questions).where(eq(questions.eventId, locked.id));
+          const questionIds = normalizedQuestions.map(() => randomUUID());
+          await tx.insert(questions).values(
+            normalizedQuestions.map((question, index) => ({
+              id: questionIds[index],
+              eventId: locked.id,
+              prompt: question.prompt,
+              description: question.description || null,
+              pickType: question.pickType,
+              maxPicks: question.maxPicks,
+              sortOrder: index,
+            })),
+          );
+          const optionValues = normalizedQuestions.flatMap((question, questionIndex) =>
+            question.options.map((option, sortOrder) => ({
+              questionId: questionIds[questionIndex],
+              label: option.label.trim() || "Untitled option",
+              description: option.description.trim() || null,
+              imageSource: option.imageSource === "none" ? null : option.imageSource,
+              imageUrl: option.imageUrl.trim() || null,
+              imageBlobKey: option.imageBlobKey.trim() || null,
+              imageAlt: option.imageAlt.trim() || null,
+              sortOrder,
+            })),
+          );
+          if (optionValues.length > 0) {
+            await tx.insert(options).values(optionValues);
+          }
+          if (!eventChanged) {
+            await tx
+              .update(events)
+              .set({ editedAt: sql`clock_timestamp()` })
+              .where(eq(events.id, locked.id));
+          }
+        }
+      }
+
+      return {
+        ok: true as const,
+        eventId: locked.id,
+        draftVersion,
+        edited: eventChanged || questionsChanged,
+      };
+    });
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    console.error("updatePublishedQuiz transaction failed", {
+      eventId: input.eventId,
+      message: cause instanceof Error ? cause.message : "Unexpected server error",
+    });
+    return {
+      ok: false,
+      errors: {},
+      formError: "Couldn’t save these changes. Your edits are still here. Try again.",
+    };
+  }
+
+  if (!transactionResult.ok) {
+    if (transactionResult.reason === "conflict") {
+      return {
+        ok: false,
+        errors: {},
+        formError: `This poll changed in another tab (version ${transactionResult.version}). Reload it before saving again.`,
+      };
+    }
+    if (transactionResult.reason === "invalid") {
+      return { ok: false, errors: transactionResult.errors, formError: null };
+    }
+    return {
+      ok: false,
+      errors: {},
+      formError:
+        transactionResult.reason === "draft"
+          ? "Drafts are edited in the poll builder."
+          : "This poll isn’t available — it may have been removed.",
+    };
+  }
+
+  revalidateTag("home:polls", { expire: 0 });
+  revalidatePath("/");
+  revalidatePath("/discover");
+  revalidatePath(`/events/${transactionResult.eventId}`);
+  await invalidateResultCache(transactionResult.eventId);
+
+  return {
+    ok: true,
+    eventId: transactionResult.eventId,
+    draftVersion: transactionResult.draftVersion,
+    edited: transactionResult.edited,
+  };
 }
 
 export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
@@ -522,7 +844,7 @@ export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
   });
 
   if (!closed) return { ok: false, message: "Only an open poll can be closed early." };
-  revalidateTag("home:polls", "max");
+  revalidateTag("home:polls", { expire: 0 });
   revalidatePath("/");
   revalidatePath(`/events/${eventId}`);
   return { ok: true };
@@ -548,7 +870,7 @@ export async function deleteDraft(eventId: string): Promise<OwnerActionResult> {
     .returning({ id: events.id });
 
   if (!deleted) return { ok: false, message: "Only your own draft can be deleted." };
-  revalidateTag("home:polls", "max");
+  revalidateTag("home:polls", { expire: 0 });
   revalidatePath("/");
   revalidatePath("/events/drafts");
   return { ok: true };

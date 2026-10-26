@@ -7,7 +7,7 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import { cookies, headers } from "next/headers";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
@@ -395,6 +395,12 @@ export async function submitVote(input: VoteInput): Promise<VoteResult> {
 
     if (!result.ok) return result;
     revalidatePath(`/events/${input.eventId}`);
+    // Response counts are part of the Discover/home listing cache. Expire it
+    // with a blocking revalidation so the next visit shows the new total
+    // instead of a days-old stale-while-revalidate snapshot.
+    revalidateTag("home:polls", { expire: 0 });
+    revalidatePath("/");
+    revalidatePath("/discover");
     return result;
   } catch (error) {
     const message = describeError(error);

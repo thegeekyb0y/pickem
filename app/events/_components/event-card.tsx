@@ -68,6 +68,7 @@ export default function EventCard({
             <span>
               {phase === "scheduled" ? "Opens " : phase === "closed" ? "Closed " : "Closes "}
               {dateTime.format(phase === "scheduled" ? poll.opensAt : poll.closesAt)}
+              {poll.editedAt ? <> · Edited {dateTime.format(poll.editedAt)}</> : null}
             </span>
           </p>
           {poll.coverKind === "unsplash" && poll.coverMeta?.photographer ? (

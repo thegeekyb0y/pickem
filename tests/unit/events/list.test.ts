@@ -24,6 +24,7 @@ function item(overrides: Partial<EventListItem> = {}): EventListItem {
     coverKind: "none",
     coverRef: null,
     coverMeta: null,
+    editedAt: null,
     questionCount: 1,
     ballotCount: 0,
     ...overrides,
@@ -50,6 +51,7 @@ describe("hydrateEventListItem", () => {
       ...item(),
       opensAt: "2026-10-20T11:59:00.000Z",
       closesAt: "2026-10-22T12:00:00.000Z",
+      editedAt: "2026-10-21T09:30:00.000Z",
     };
 
     const hydrated = hydrateEventListItem(cached);
@@ -57,6 +59,8 @@ describe("hydrateEventListItem", () => {
     expect(hydrated.opensAt).toBeInstanceOf(Date);
     expect(hydrated.closesAt).toBeInstanceOf(Date);
     expect(hydrated.closesAt.toISOString()).toBe(cached.closesAt);
+    expect(hydrated.editedAt).toBeInstanceOf(Date);
+    expect(hydrated.editedAt?.toISOString()).toBe(cached.editedAt);
   });
 });
 

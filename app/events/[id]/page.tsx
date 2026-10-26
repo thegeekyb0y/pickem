@@ -107,6 +107,7 @@ export default async function EventDetailPage({
         coverKind: event.coverKind,
         coverRef: event.coverRef,
         coverMeta: event.coverMeta,
+        editedAt: event.editedAt?.toISOString() ?? null,
       }}
       questions={event.questions.map((question) => ({
         id: question.id,

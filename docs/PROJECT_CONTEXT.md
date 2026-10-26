@@ -32,7 +32,10 @@ Last updated: 2026-10-26.
   - `0000`–`0009` are applied to Neon production. `0009` was applied on
     2026-10-25 after a verified backup; production now has 10 recorded
     migrations and unchanged row counts.
-  - The contract migration is renumbered to `0010`. It must not be authored
+  - `0010_edited_at` is local-only so far. It adds the nullable `edited_at`
+    marker and `events_edited_after_created_chk`; it has not been applied to
+    production.
+  - The contract migration is renumbered to `0011`. It must not be authored
     with `drizzle-kit generate` until the snapshot chain is rebuilt (see
     “Migration snapshots” below), and it should wait for a stable production
     period.
@@ -46,9 +49,9 @@ Last updated: 2026-10-26.
   `6921175` is the earlier false green, when unset secrets made every database
   step skip in 0 s.
 - Local test container `pickem-test-pg` runs on `127.0.0.1:55432`. The base
-  test database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
-  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`) are all
-  at migration `0009` with 10 recorded migrations. Integration and e2e suites
+  test database, `pickem_fresh_0010` (fresh `0000`–`0010`), and
+  `pickem_fresh_0009` (fresh `0000`–`0009`, then upgraded to `0010`) are all
+  at migration `0010` with 11 recorded migrations. Integration and e2e suites
   point at the base database through `DATABASE_URL_TEST`.
 
 ## Deployment verification
@@ -97,7 +100,7 @@ Consequences:
 - `npx drizzle-kit migrate` is unaffected; it applies the journal entries in
   order and is what CI and local rehearsal use.
 - Rebuild the snapshots from the real schema (or squash the hand-written
-  migrations into a fresh baseline) **before** authoring `0010`.
+  migrations into a fresh baseline) **before** authoring `0011`.
 
 ## Commit map
 
@@ -128,6 +131,7 @@ Consequences:
 | `dff7cc2` | `main` | Share-slug integration/e2e coverage and honest test docs |
 | `ec3f0c5` | `main` | README: `npm test` is unit-only |
 | `ce3257d` | `main` / `origin/main` | Redis fails fast so results polling cannot hang |
+| `99eac15` | `feature/edit-published` | `0010`: published-poll edit marker |
 
 ## Domain model
 
@@ -135,7 +139,7 @@ The deployed model since `0006` keeps `events` as the quiz identity and adds
 required `questions`; questions own options and each question has its own pick
 type. `ballot_answers` stores selected options per question while `votes`
 remains the quiz-level ballot/identity row. Legacy `vote_picks` and
-`votes.option_id` still exist in production and are removed by `0010`.
+`votes.option_id` still exist in production and are removed by `0011`.
 
 | Concept | Where |
 | --- | --- |
@@ -199,10 +203,21 @@ confirmation for delete.
 **Times.** Store UTC. Render viewer-local time with a timezone label and
 countdown. No timezone column.
 
-**Edit rules.** Title/description may change anytime; dates only before close.
-Never reopen a closed quiz. Block moving the start into the future once ballots
-exist. Invalidate listing/results caches and show an “edited” marker. Question
-types, options, and picks lock after votes.
+**Edit rules.** Owners edit published polls through the builder at
+`/events/[id]/edit`; drafts keep using `/events/new?draft=`. Title, description
+and cover may change anytime. Dates may change only before close, and the
+closing time must be after the opening time and in the future on the database
+clock. Once the window has opened, `opens_at` is frozen, even with zero
+ballots; before opening it may move either way. A scheduled poll moved to a past
+start flips to `status = open`. Questions, options and pick settings lock after
+the first ballot; when ballots exist the action neither sends nor compares the
+question payload and rejects one if supplied. Slug, visibility and passcode are
+locked after publish in v1. Edits take the same `FOR UPDATE` row lock as
+close-early, use database-clock timestamps, and a second simultaneous edit loses
+the `draft_version` check. A successful edit invalidates the `home:polls` tag,
+`/discover`, `/`, the poll page, and the results cache, then shows an “Edited”
+marker. `edited_at` is written only by this path; ballots, close-early and
+`$onUpdate` do not touch it.
 
 **Covers.** Every quiz can show a cover in the builder, quiz page, and Discover
 card. The active direction is app-owned preset/pattern artwork supplied later,
@@ -216,16 +231,16 @@ are still deferred.
 **Migration sequence.** No legacy compatibility validator is needed because
 there are no real users. `0006` expanded/backfilled questions, question-owned
 options, ballot answers, and covers; deploy code after it. `0009` repairs the
-option-change validation that `0006` missed. `0010` contracts legacy
-fields/tables only after the new model is proven in production. Reordering
-constraints are `DEFERRABLE INITIALLY DEFERRED`.
+option-change validation that `0006` missed. `0010` adds the edit marker.
+`0011` contracts legacy fields/tables only after the new model is proven in
+production. Reordering constraints are `DEFERRABLE INITIALLY DEFERRED`.
 
 **Legacy `options.event_id`.** The column still exists but the application
 never writes it, so it is `NULL` for every app-created option. No active trigger
 reads it: the trigger functions resolve the quiz through
 `questions.event_id`. Two historical references remain in
 `db/schema/triggers.ts` (lines 30 and 281), which is explicitly not exported
-from the active schema. Drop the column in `0010`; nothing else needs to change.
+from the active schema. Drop the column in `0011`; nothing else needs to change.
 
 **Guest handles are ballot attribution, not profiles.** The “Social handle”
 and platform inputs in `event-detail-client.tsx` are the guest ballot handle.
@@ -290,6 +305,20 @@ only) has its own migration gate.
 - Migration `0009`: replaces `validate_published_quiz_questions()` so option
   changes on a published quiz are rejected. It is the only function `0009`
   touches and it is applied to production (10 recorded migrations).
+- Published-poll editing: `/events/[id]/edit` reuses the builder with identity
+  fields read-only, disabled dates when frozen, a locked question fieldset after
+  ballots, and explicit “Save changes”. `updatePublishedQuiz` enforces ownership,
+  dates, question locking, and version conflicts under `FOR UPDATE`; a successful
+  edit writes `edited_at`, invalidates listing/results caches, and shows an
+  “Edited” marker on the poll and card. Migration `0010_edited_at` adds the
+  nullable marker locally; production is untouched.
+- Discover/home counts: the listing counts questions and ballots with separate
+  grouped queries. The previous correlated subqueries rendered
+  `where "event_id" = "id"` unqualified, so every card showed 0 questions and
+  0 responses. Ballots, publishes, edits, closes and deletes now expire
+  `home:polls` with `{ expire: 0 }` (blocking) instead of `"max"`, whose
+  stale-while-revalidate window is one year. The 45-second TTL remains a
+  fallback.
 - CI: unit and integration are separate steps; integration runs against a
   disposable Postgres service container, and both the Vitest guard and
   `playwright.config.ts` fail closed in CI if the database suites would skip.
@@ -305,21 +334,26 @@ only) has its own migration gate.
   never touches the database and cannot catch the DB-level guards.
 - Unit: **14 files / 75 tests** pass. The whole suite in one process exceeds the
   90 s command budget because of import time, so it is verified as three split
-  runs (8 files/35 tests, 4 files/34 tests, 2 files/6 tests).
-- Integration: **5 files / 31 tests** pass on three databases — the base test
-  database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
-  `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`). Per file:
-  `quiz-integrity` 13, `save-quiz` 5, `slug-route` 5, `voting` 5,
-  `concurrency` 3. The earlier 4-file / 23-test figure predates the slug tests.
-- Playwright: **5 tests in 4 files**; `share-slug` passed 1/1. The full e2e run
-  needs port 3000 free and a single worker.
-- Lint, typecheck, and the production build pass in CI (`40219050750`).
-- Migration rehearsal: fresh `0000`–`0009` and upgrade `0008`→`0009` both end at
-  migration `0009` with 10 recorded migrations. `pg_dump --schema-only` output is
-  **identical** for the two databases (1342 lines), so `0009` behaves the same
-  on a fresh chain and an upgraded one.
+  runs (7 files/32 tests, 2 files/6 tests, 5 files/37 tests).
+- Integration: **7 files / 47 tests** pass on the base test database, which is
+  at migration `0010`. Per file: `quiz-integrity` 13, `edit-published` 11,
+  `concurrency` 6, `voting` 6, `save-quiz` 5, `slug-route` 5,
+  `discover-list` 1.
+- Playwright: **7 tests in 6 files** pass with one worker and port 3000 free,
+  including the owner edit flow, its Discover invalidation, and the
+  post-ballot card counts.
+- Lint, typecheck, and the production build pass in CI (`40219050750`); lint and
+  typecheck also pass locally for the edit-published branch.
+- Migration rehearsal: fresh `0000`–`0010` and upgrade `0009`→`0010` both end at
+  migration `0010` with 11 recorded migrations. `pg_dump --schema-only` output is
+  **identical** apart from pg_dump's random `\restrict` token (1346 lines), so
+  `0010` behaves the same on a fresh chain and an upgraded one.
 - `0009` adds 5 `quiz-integrity` gap tests, including the option-publish
   validation that previously let a published quiz's options be changed.
+- `feature/edit-published` adds 11 rule tests (ownership, closed dates, frozen
+  start, future close, scheduled→past start, question/option locking, identity
+  fields, no-op marker, last-option deletion) and 3 concurrency tests (edit vs
+  ballot, two edits, edit vs close), plus one owner-flow e2e.
 - Performance: one `saveQuiz` publish of 20 questions × 8 options (160 options)
   took **810.1 ms** against the local test container. This is a single-sample
   measurement, not a benchmark.
@@ -377,14 +411,15 @@ Ordered, with the small verification items first and the irreversible work last.
    with a static, no-database landing page. This reverses the current
    “alias” decision, so update Discover links and the mobile nav at the same
    time.
-6. **Rebuild the Drizzle snapshots, then `0010`.** Snapshots `0005`–`0009` are
+6. **Rebuild the Drizzle snapshots, then `0011`.** Snapshots `0005`–`0009` are
    missing, so `drizzle-kit generate` would diff against `0004` and emit
    duplicate SQL. Rebuild or squash the chain, then drop legacy `vote_picks`,
    `votes.option_id` / `is_submitted`, `options.event_id`, and
    `events.pick_type` / `max_picks` — only after a stable production period.
-7. **Edit published polls.** Implement the edit rules, edited marker, cache
-   invalidation, and immutable questions/options after votes, with concurrency
-   tests.
+7. **Edit published polls.** Implemented on `feature/edit-published`: the edit
+   rules, `edited_at` marker, cache invalidation, immutable questions/options
+   after votes, and concurrency coverage. Not yet merged or applied to
+   production.
 8. **Social link.** Profile-level platform + handle under its own migration
    gate, constrained to HTTPS `instagram.com` / `x.com`. Not the guest ballot
    handle described under “Key decisions”.
@@ -423,7 +458,7 @@ Ordered, with the small verification items first and the irreversible work last.
 The quiz engineering, migration, and CI work are done and shipped. Remaining
 verification is a production smoke test and a deployment-commit check (under
 an hour). The next build items are answer key/scoring/leaderboard, the share
-image, and the landing page; the snapshot rebuild plus `0010` should wait for a
+image, and the landing page; the snapshot rebuild plus `0011` should wait for a
 stable production period. Treat the snapshot rebuild as the risky item and
 budget a focused session for it.
 

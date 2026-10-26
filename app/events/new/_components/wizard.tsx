@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import QuizCoverPicker from "./quiz-cover-picker";
 import QuestionEditor, { blankQuestion, type QuizQuestionState } from "./question-editor";
 import EventSlugField from "./slug-field";
-import { saveQuiz, type SaveQuizInput, type Visibility } from "@/lib/events/actions";
+import { saveQuiz, updatePublishedQuiz, type SaveQuizInput, type Visibility } from "@/lib/events/actions";
 import { parseUtcInstant } from "@/lib/events/date-time";
 import { validateEventSlug } from "@/lib/events/slug";
 import { validateQuizQuestions } from "@/lib/events/quiz-validation";
@@ -60,6 +60,15 @@ export type WizardInitial = {
   coverRef: string | null;
   coverMeta: QuizCoverMeta | null;
   questions: WizardQuestionInitial[];
+};
+
+export type PublishedEditConfig = {
+  /** True once any ballot exists; questions and options are then immutable. */
+  ballotsExist: boolean;
+  /** True when the poll is closed (status or closing time). */
+  datesLocked: boolean;
+  /** True once the voting window has opened; the start time is fixed. */
+  startFrozen: boolean;
 };
 
 function newKey() {
@@ -113,7 +122,16 @@ function formatSavedAt() {
   return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date());
 }
 
-export default function Wizard({ initial }: { initial: WizardInitial }) {
+export default function Wizard({
+  initial,
+  mode = "create",
+  published,
+}: {
+  initial: WizardInitial;
+  mode?: "create" | "edit-published";
+  published?: PublishedEditConfig;
+}) {
+  const editingPublished = mode === "edit-published";
   const router = useRouter();
   const [eventId, setEventId] = useState(initial.eventId);
   const [draftVersion, setDraftVersion] = useState(initial.draftVersion);
@@ -142,7 +160,9 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   const [dirty, setDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [saveNote, setSaveNote] = useState("Draft changes save automatically.");
+  const [saveNote, setSaveNote] = useState(
+    editingPublished ? "Changes save when you choose Save changes." : "Draft changes save automatically.",
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saveFailure, setSaveFailure] = useState(false);
@@ -247,10 +267,11 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
   }, [saveDraft]);
 
   useEffect(() => {
+    if (editingPublished) return;
     if (!dirty || publishing || blockedAutoSaveRef.current) return;
     const timeout = window.setTimeout(() => void saveDraftRef.current?.(false), 850);
     return () => window.clearTimeout(timeout);
-  }, [dirty, title, description, slug, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions, publishing]);
+  }, [dirty, title, description, slug, opensAt, closesAt, visibility, passcode, coverKind, coverRef, coverMeta, questions, publishing, editingPublished]);
 
   function updateTitle(value: string) {
     markDirty();
@@ -352,17 +373,92 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
     }
   }
 
+  async function savePublishedEdits() {
+    if (!editingPublished || savingRef.current || publishingRef.current) return;
+    if (!eventIdRef.current) {
+      setFormError("This poll is unavailable.");
+      return;
+    }
+
+    const nextErrors: Record<string, string> = {};
+    if (!title.trim()) nextErrors.title = "Give your poll a title.";
+    if (title.trim().length > 160) nextErrors.title = "Keep titles to 160 characters or fewer.";
+    const opens = parseUtcInstant(opensAt);
+    const closes = parseUtcInstant(closesAt);
+    if (!opens) nextErrors.opensAt = "Choose when voting opens.";
+    if (!closes) nextErrors.closesAt = "Choose when voting closes.";
+    if (opens && closes && closes <= opens) {
+      nextErrors.closesAt = "Closing time must be after opening time.";
+    }
+    if (!published?.ballotsExist) {
+      const questionValidation = validateQuizQuestions(toSaveQuestions(questions), true);
+      Object.assign(nextErrors, questionValidation.errors);
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setFormError("Review the highlighted fields before saving.");
+      setSaveFailure(false);
+      formErrorRef.current?.focus();
+      return;
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
+    setFormError(null);
+    setSaveFailure(false);
+    try {
+      const result = await updatePublishedQuiz({
+        eventId: eventIdRef.current,
+        expectedDraftVersion: draftVersionRef.current,
+        title,
+        description,
+        opensAt,
+        closesAt,
+        coverKind,
+        coverRef,
+        coverMeta,
+        ...(published?.ballotsExist ? {} : { questions: toSaveQuestions(questions) }),
+      });
+      if (result.ok) {
+        draftVersionRef.current = result.draftVersion;
+        setDraftVersion(result.draftVersion);
+        setDirty(false);
+        setErrors({});
+        setFormError(null);
+        setSaveNote(result.edited ? `Saved at ${formatSavedAt()}` : "No changes to save.");
+        router.push(`/events/${initial.slug || eventIdRef.current}`);
+        return;
+      }
+      setErrors(result.errors);
+      setFormError(result.formError ?? "Couldn’t save these changes. Fix the highlighted fields and try again.");
+      formErrorRef.current?.focus();
+    } catch {
+      setFormError("Couldn’t save these changes. Check your connection and try again.");
+      formErrorRef.current?.focus();
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-muted-foreground">Ask your group, collect answers, and share results.</p>
+          <p className="text-sm text-muted-foreground">
+            {editingPublished
+              ? "Update the poll details. Published answers stay exactly as voters saw them."
+              : "Ask your group, collect answers, and share results."}
+          </p>
           <h1 className="mt-1 text-balance text-3xl font-bold">
-            {eventId ? "Edit poll draft" : "Create a poll"}
+            {editingPublished ? "Edit poll" : eventId ? "Edit poll draft" : "Create a poll"}
           </h1>
         </div>
-        <Link href="/events/drafts" className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-          My drafts
+        <Link
+          href={editingPublished ? `/events/${initial.slug || initial.eventId}` : "/events/drafts"}
+          className="text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {editingPublished ? "Back to poll" : "My drafts"}
         </Link>
       </header>
 
@@ -381,7 +477,11 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
           aria-live="polite"
           className="text-pretty focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          {isSaving ? "Saving draft…" : formError ?? saveNote}
+          {isSaving
+            ? editingPublished
+              ? "Saving changes…"
+              : "Saving draft…"
+            : formError ?? saveNote}
         </p>
         {saveFailure ? (
           <Button
@@ -389,7 +489,9 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
             variant="secondary"
             size="compact"
             disabled={isSaving || publishing}
-            onClick={() => void saveDraftRef.current?.(true)}
+            onClick={() =>
+              void (editingPublished ? savePublishedEdits() : saveDraftRef.current?.(true))
+            }
             className="font-fluid min-h-8 px-3"
           >
             Try again
@@ -432,14 +534,34 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
             </div>
-            <EventSlugField
-              value={slug}
-              initialValue={initial.slug}
-              eventId={eventId}
-              title={title}
-              error={errors.slug}
-              onChange={updateSlug}
-            />
+            {editingPublished ? (
+              <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
+                <p className="text-pretty">
+                  <span className="text-muted-foreground">Share link:</span>{" "}
+                  <span className="font-mono">/events/{initial.slug || initial.eventId}</span>
+                </p>
+                <p className="mt-1 text-pretty">
+                  <span className="text-muted-foreground">Visibility:</span>{" "}
+                  {initial.visibility === "discoverable"
+                    ? "Discover · public feed"
+                    : initial.visibility === "passcode"
+                      ? "Passcode protected"
+                      : "Unlisted · link only"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Links, visibility and passcodes are locked after publishing.
+                </p>
+              </div>
+            ) : (
+              <EventSlugField
+                value={slug}
+                initialValue={initial.slug}
+                eventId={eventId}
+                title={title}
+                error={errors.slug}
+                onChange={updateSlug}
+              />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <DateTimePicker
@@ -450,6 +572,7 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                   onChange={updateOpensAt}
                   error={errors.opensAt}
                   errorId="f-opensAt-error"
+                  disabled={Boolean(published?.datesLocked || published?.startFrozen)}
                 />
                 {errors.opensAt ? <p id="f-opensAt-error" role="alert" className="mt-1 text-sm text-accent">{errors.opensAt}</p> : null}
               </div>
@@ -463,10 +586,22 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                   onChange={updateClosesAt}
                   error={errors.closesAt}
                   errorId="f-closesAt-error"
+                  disabled={Boolean(published?.datesLocked)}
                 />
                 {errors.closesAt ? <p id="f-closesAt-error" role="alert" className="mt-1 text-sm text-accent">{errors.closesAt}</p> : null}
               </div>
             </div>
+            {editingPublished && published?.datesLocked ? (
+              <p className="text-xs text-muted-foreground">
+                Voting has closed. The poll details can still change, but its dates are final.
+              </p>
+            ) : editingPublished && published?.startFrozen ? (
+              <p className="text-xs text-muted-foreground">
+                Voting has already opened, so the start time is fixed. The closing time can still move.
+              </p>
+            ) : null}
+            {!editingPublished ? (
+              <>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="quiz-visibility" className="mb-1 block text-sm font-medium">Visibility</label>
@@ -501,6 +636,8 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
                 Passcodes are stored as a hash and never as plaintext.
               </p>
             ) : null}
+              </>
+            ) : null}
           </div>
         </div>
       </section>
@@ -510,19 +647,44 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
           <div>
             <h2 id="questions-title" className="text-balance text-xl font-bold">Questions</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Every question is required. Add 1–20 questions, each with 2–8 options.
+              {editingPublished && published?.ballotsExist
+                ? "Responses exist, so questions, options and pick settings are locked."
+                : "Every question is required. Add 1–20 questions, each with 2–8 options."}
             </p>
           </div>
           <Badge size="compact" color="sky">{questions.length} / 20</Badge>
         </div>
-        <QuestionEditor
-          questions={questions}
-          errors={errors}
-          onChange={updateQuestions}
-        />
+        <fieldset disabled={Boolean(editingPublished && published?.ballotsExist)} className="min-w-0 border-0 p-0">
+          <legend className="sr-only">Questions</legend>
+          <QuestionEditor
+            questions={questions}
+            errors={errors}
+            onChange={updateQuestions}
+          />
+        </fieldset>
       </section>
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+        {editingPublished ? (
+          <>
+            <Link
+              href={`/events/${initial.slug || initial.eventId}`}
+              className="font-fluid inline-flex min-h-11 items-center justify-center rounded-md border border-border px-4 text-sm font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              Cancel
+            </Link>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={isSaving}
+              onClick={() => void savePublishedEdits()}
+              className={cn("font-fluid min-h-11 px-5", isSaving && "opacity-70")}
+            >
+              {isSaving ? "Saving…" : "Save changes"}
+            </Button>
+          </>
+        ) : (
+          <>
         <Button
           type="button"
           variant="tertiary"
@@ -541,9 +703,13 @@ export default function Wizard({ initial }: { initial: WizardInitial }) {
         >
           {publishing ? "Publishing…" : "Publish poll"}
         </Button>
+          </>
+        )}
       </footer>
       <p className="sr-only" aria-live="polite">
-        Draft version {draftVersion} {dirty ? "has unsaved changes" : "is saved"}.
+        {editingPublished
+          ? `Changes ${dirty ? "have not been saved" : "are saved"}.`
+          : `Draft version ${draftVersion} ${dirty ? "has unsaved changes" : "is saved"}.`}
       </p>
     </div>
   );

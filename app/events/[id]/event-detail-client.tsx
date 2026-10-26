@@ -48,6 +48,7 @@ type EventData = {
   coverKind: QuizCoverKind;
   coverRef: string | null;
   coverMeta: QuizCoverMeta | null;
+  editedAt: string | null;
 };
 
 function formatDate(value: string) {
@@ -267,6 +268,7 @@ export default function EventDetailClient({
                   eventId={event.id}
                   isDraft={event.status === "draft"}
                   isLive={!effectiveClosed && !notStarted}
+                  isPublished={event.status !== "draft"}
                 />
               </div>
             ) : null}
@@ -284,6 +286,9 @@ export default function EventDetailClient({
               <LiveStatus status={liveStatus} />
               <span className="text-subtle-foreground" suppressHydrationWarning>
                 {timeLabel} {formatDate(timeTarget)} ({timezone}) · <Countdown target={timeTarget} label={timeLabel} />
+                {event.editedAt ? (
+                  <> · Edited <time dateTime={event.editedAt}>{formatDate(event.editedAt)}</time></>
+                ) : null}
               </span>
             </div>
 
