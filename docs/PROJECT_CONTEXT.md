@@ -312,6 +312,13 @@ only) has its own migration gate.
   edit writes `edited_at`, invalidates listing/results caches, and shows an
   “Edited” marker on the poll and card. Migration `0010_edited_at` adds the
   nullable marker locally; production is untouched.
+- Discover/home counts: the listing counts questions and ballots with separate
+  grouped queries. The previous correlated subqueries rendered
+  `where "event_id" = "id"` unqualified, so every card showed 0 questions and
+  0 responses. Ballots, publishes, edits, closes and deletes now expire
+  `home:polls` with `{ expire: 0 }` (blocking) instead of `"max"`, whose
+  stale-while-revalidate window is one year. The 45-second TTL remains a
+  fallback.
 - CI: unit and integration are separate steps; integration runs against a
   disposable Postgres service container, and both the Vitest guard and
   `playwright.config.ts` fail closed in CI if the database suites would skip.
@@ -328,11 +335,13 @@ only) has its own migration gate.
 - Unit: **14 files / 75 tests** pass. The whole suite in one process exceeds the
   90 s command budget because of import time, so it is verified as three split
   runs (7 files/32 tests, 2 files/6 tests, 5 files/37 tests).
-- Integration: **6 files / 45 tests** pass on the base test database, which is
+- Integration: **7 files / 47 tests** pass on the base test database, which is
   at migration `0010`. Per file: `quiz-integrity` 13, `edit-published` 11,
-  `concurrency` 6, `save-quiz` 5, `slug-route` 5, `voting` 5.
-- Playwright: **6 tests in 5 files** pass with one worker and port 3000 free,
-  including the owner edit flow and its Discover invalidation.
+  `concurrency` 6, `voting` 6, `save-quiz` 5, `slug-route` 5,
+  `discover-list` 1.
+- Playwright: **7 tests in 6 files** pass with one worker and port 3000 free,
+  including the owner edit flow, its Discover invalidation, and the
+  post-ballot card counts.
 - Lint, typecheck, and the production build pass in CI (`40219050750`); lint and
   typecheck also pass locally for the edit-published branch.
 - Migration rehearsal: fresh `0000`–`0010` and upgrade `0009`→`0010` both end at
