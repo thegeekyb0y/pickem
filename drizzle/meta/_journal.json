@@ -71,6 +71,13 @@
       "when": 1792946681495,
       "tag": "0009_fix_option_publish_validation",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0010_edited_at",
+      "breakpoints": true
     }
   ]
 }

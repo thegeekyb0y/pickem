@@ -82,6 +82,8 @@ export const events = pgTable(
       // same clock or the `updated_at >= created_at` checks can fail on drift.
       .$onUpdate(() => sql`clock_timestamp()`)
       .notNull(),
+    /** Set only by the owner-edit path after publishing. Null means never edited. */
+    editedAt: timestamp("edited_at", { withTimezone: true }),
   },
   (table) => [
     index("events_creator_user_id_idx").on(table.creatorUserId),
@@ -97,6 +99,10 @@ export const events = pgTable(
     check("events_title_length_chk", sql`length(trim(${table.title})) between 1 and 160`),
     check("events_window_chk", sql`${table.closesAt} > ${table.opensAt}`),
     check("events_updated_after_created_chk", sql`${table.updatedAt} >= ${table.createdAt}`),
+    check(
+      "events_edited_after_created_chk",
+      sql`${table.editedAt} is null or ${table.editedAt} >= ${table.createdAt}`,
+    ),
     check(
       "events_passcode_visibility_chk",
       sql`(${table.visibility} = 'passcode' and ${table.passcodeHash} is not null) or (${table.visibility} <> 'passcode' and ${table.passcodeHash} is null)`,
