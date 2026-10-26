@@ -94,13 +94,6 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
       coverRef: events.coverRef,
       coverMeta: events.coverMeta,
       editedAt: events.editedAt,
-      questionCount: sql<number>`(
-        select count(*)::int from ${questions} where ${questions.eventId} = ${events.id}
-      )`,
-      ballotCount: sql<number>`(
-        select count(*)::int from ${votes}
-        where ${votes.eventId} = ${events.id}
-      )`,
     })
     .from(events)
     .where(
@@ -112,10 +105,36 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
     .orderBy(desc(events.createdAt))
     .limit(HOME_POLL_LIMIT);
 
+  if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.id);
+
+  // Count in separate grouped queries. Correlated subqueries written through
+  // `sql` templates render their column references unqualified, so
+  // `where "event_id" = "id"` compares columns on the inner table and always
+  // returns zero.
+  const [questionRows, ballotRows] = await Promise.all([
+    db
+      .select({ eventId: questions.eventId, count: sql<number>`count(*)::int` })
+      .from(questions)
+      .where(inArray(questions.eventId, ids))
+      .groupBy(questions.eventId),
+    db
+      .select({ eventId: votes.eventId, count: sql<number>`count(*)::int` })
+      .from(votes)
+      .where(inArray(votes.eventId, ids))
+      .groupBy(votes.eventId),
+  ]);
+  const questionCounts = new Map(
+    questionRows.map((row) => [row.eventId, Number(row.count)]),
+  );
+  const ballotCounts = new Map(
+    ballotRows.map((row) => [row.eventId, Number(row.count)]),
+  );
+
   return rows.map((row) => ({
     ...row,
-    questionCount: Number(row.questionCount),
-    ballotCount: Number(row.ballotCount),
+    questionCount: questionCounts.get(row.id) ?? 0,
+    ballotCount: ballotCounts.get(row.id) ?? 0,
   }));
 }
 

@@ -472,7 +472,8 @@ export async function saveQuiz(input: SaveQuizInput): Promise<SaveQuizResult> {
   revalidatePath("/events/drafts");
   revalidatePath("/profile");
   if (input.saveAs === "publish") {
-    revalidateTag("home:polls", "max");
+    revalidateTag("home:polls", { expire: 0 });
+    revalidatePath("/");
     revalidatePath("/discover");
   }
   revalidatePath(`/events/${transactionResult.eventId}`);
@@ -784,7 +785,7 @@ export async function updatePublishedQuiz(
     };
   }
 
-  revalidateTag("home:polls", "max");
+  revalidateTag("home:polls", { expire: 0 });
   revalidatePath("/");
   revalidatePath("/discover");
   revalidatePath(`/events/${transactionResult.eventId}`);
@@ -843,7 +844,7 @@ export async function closeEvent(eventId: string): Promise<OwnerActionResult> {
   });
 
   if (!closed) return { ok: false, message: "Only an open poll can be closed early." };
-  revalidateTag("home:polls", "max");
+  revalidateTag("home:polls", { expire: 0 });
   revalidatePath("/");
   revalidatePath(`/events/${eventId}`);
   return { ok: true };
@@ -869,7 +870,7 @@ export async function deleteDraft(eventId: string): Promise<OwnerActionResult> {
     .returning({ id: events.id });
 
   if (!deleted) return { ok: false, message: "Only your own draft can be deleted." };
-  revalidateTag("home:polls", "max");
+  revalidateTag("home:polls", { expire: 0 });
   revalidatePath("/");
   revalidatePath("/events/drafts");
   return { ok: true };
