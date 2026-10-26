@@ -3,7 +3,7 @@
 A summary of what Pickem is, the decisions behind it, and where the work
 stands. Written so a fresh session can pick up without re-deriving the history.
 
-Last updated: 2026-10-25.
+Last updated: 2026-10-26.
 
 ## Stack
 
@@ -20,40 +20,64 @@ Last updated: 2026-10-25.
 
 ## Current repository state
 
-- `origin/main` is `6921175 docs: record share slugs and image controls`.
+- `origin/main` is `ce3257d fix(redis): fail fast when Redis is unreachable`.
+  Local `main` is clean, tracks `origin/main`, and has no unpushed commits.
   PRs #1–#6 are merged, so `main` contains the multi-question builder, Phase 1
-  reliability fixes, poll polish phases 1–5, share slugs, and image controls.
-- Local `main` is three commits ahead of `origin/main` and has not been pushed:
-  `c63b369 fix(events): write updated_at from the database clock`,
-  `fe346e5 fix(db): validate option changes on published quizzes`, and
-  `464e733 ci: run database suites against a Postgres service`. Task D (slug
-  tests plus this doc update) is the next local commit.
-- Production tracks `origin/main`. Nothing from these four local commits is
-  deployed, and no migration has been applied to production since `0008`.
+  reliability fixes, poll polish phases 1–5, share slugs, image controls, the
+  database-clock fix, migration `0009`, the Postgres-service CI, and the
+  share-slug test coverage.
+- Production is deployed at `https://pickem121.vercel.app`. It serves the app,
+  but it is **not proven to run `ce3257d`**; see “Deployment verification”.
 - Migration state:
-  - `0000`–`0008` are applied to Neon production.
-  - `0009_fix_option_publish_validation.sql` replaces only
-    `validate_published_quiz_questions()`. It is reviewed and rehearsed but
-    **not applied to production**; the owner will apply it.
+  - `0000`–`0009` are applied to Neon production. `0009` was applied on
+    2026-10-25 after a verified backup; production now has 10 recorded
+    migrations and unchanged row counts.
   - The contract migration is renumbered to `0010`. It must not be authored
     with `drizzle-kit generate` until the snapshot chain is rebuilt (see
-    “Migration snapshots” below).
-- Safety branches still exist: `backup/wip-quiz-builder` (`f3abaa6`) and
-  `backup/pre-split-37cc032` (`37cc032`). Local
-  `feature/fluid-quiz-builder` (`cf101c5`) is fully contained in
-  `origin/main`.
-- CI was previously green only because the database suites were skipped: the
-  `NEON_TEST_DATABASE_URL` secret was unset, so migrate and integration
-  “succeeded” in 0 s with every test skipped, and the browser/e2e steps were
-  skipped too. Run `40104587319` on `6921175` is that false green.
-- CI now starts a disposable `postgres:17-alpine` service container and uses
-  no Neon secrets. The new workflow has not run on GitHub yet because nothing
-  has been pushed.
+    “Migration snapshots” below), and it should wait for a stable production
+    period.
+- Branch hygiene: the four merged feature branches were deleted locally, and
+  the two unmerged `backup/*` branches were tagged
+  (`archive/backup-wip-quiz-builder`, `archive/backup-pre-split-37cc032`) and
+  deleted. Remote branches and the `.bundle` file were left alone.
+- CI run `40219050750` on `ce3257d` is the first honest green run: migrate,
+  integration (31 tests), build, and e2e (5 tests, 26 s) all executed against a
+  disposable `postgres:17-alpine` service container. Run `40104587319` on
+  `6921175` is the earlier false green, when unset secrets made every database
+  step skip in 0 s.
 - Local test container `pickem-test-pg` runs on `127.0.0.1:55432`. The base
   test database, `pickem_fresh_0009` (fresh `0000`–`0009`), and
   `pickem_fresh_0008` (fresh `0000`–`0008`, then upgraded to `0009`) are all
   at migration `0009` with 10 recorded migrations. Integration and e2e suites
   point at the base database through `DATABASE_URL_TEST`.
+
+## Deployment verification
+
+Read-only checks against `https://pickem121.vercel.app` on 2026-10-26:
+
+| Check | Result |
+| --- | --- |
+| `GET /` | 200, app HTML |
+| `GET /discover` | 200, app HTML |
+| `POST /api/load/vote` | 200 with `x-matched-path: /_not-found` — **not** 404 |
+| `GET /robots.txt` | 404 (the repo has no `robots.ts`) |
+| Closed public poll page | 200 |
+| `GET /api/events/<id>/results` | 200, `Cache-Control: public`, CDN `HIT` |
+| Random UUID / random slug | 404 / 404 |
+
+Two results need explanation rather than a code change:
+
+- `.vercelignore` excludes `app/api/load`, so the load-test route is never
+  deployed. The route's own guard would return a JSON 404, but it is absent
+  from the bundle; Vercel answers the unmatched `POST` with the not-found page
+  and status **200** instead of 404. The endpoint is still unreachable, which
+  is the intent.
+- The repo sets `public, s-maxage=86400, stale-while-revalidate=604800` for a
+  closed public poll, while the CDN returns plain `Cache-Control: public`
+  (also on a cache-busted `MISS`). Either Vercel normalises the CDN header or
+  the deployment predates the current route; the repo holds no deployment
+  metadata to tell which. Confirm in the Vercel dashboard before treating the
+  cache policy as verified.
 
 ## Migration snapshots
 
@@ -97,10 +121,13 @@ Consequences:
 | `ecc8887`–`eaa8971` | `feat/phase-2-poll-polish` | Poll polish phases 1–5 (PR #5) |
 | `3b5103b` | `main` | Human-readable share slugs |
 | `b1e8cb9` | `main` | Hover image controls and paste |
-| `6921175` | `main` / `origin/main` | Share-slug and image-control docs |
-| `c63b369` | local `main` | Database clock for `updated_at` writes |
-| `fe346e5` | local `main` | `0009`: validate option changes on published quizzes |
-| `464e733` | local `main` | CI runs the database suites against Postgres |
+| `6921175` | `main` | Share-slug and image-control docs |
+| `c63b369` | `main` | Database clock for `updated_at` writes |
+| `fe346e5` | `main` | `0009`: validate option changes on published quizzes |
+| `464e733` | `main` | CI runs the database suites against Postgres |
+| `dff7cc2` | `main` | Share-slug integration/e2e coverage and honest test docs |
+| `ec3f0c5` | `main` | README: `npm test` is unit-only |
+| `ce3257d` | `main` / `origin/main` | Redis fails fast so results polling cannot hang |
 
 ## Domain model
 
@@ -200,6 +227,16 @@ reads it: the trigger functions resolve the quiz through
 `db/schema/triggers.ts` (lines 30 and 281), which is explicitly not exported
 from the active schema. Drop the column in `0010`; nothing else needs to change.
 
+**Guest handles are ballot attribution, not profiles.** The “Social handle”
+and platform inputs in `event-detail-client.tsx` are the guest ballot handle.
+They are required for signed-out voters, validated to 1–40 characters with
+platform `instagram` or `x`, and written to the `votes` row as `guest_handle`
+/ `guest_handle_platform` inside the same transaction as the ballot. They
+persist for as long as the ballot does, and signed-in voters send neither
+field. Nothing reads them back into a profile or displays them on the poll
+page. A profile-level social link is a separate, unimplemented feature (see
+the roadmap).
+
 **Account deletion is last.** Strip PII, delete sessions/accounts/drafts,
 retain a tombstone user so ballots stay intact, and close or unlist the user's
 open quizzes. The social link (platform + handle, HTTPS `instagram.com`/`x.com`
@@ -252,10 +289,14 @@ only) has its own migration gate.
   covers it.
 - Migration `0009`: replaces `validate_published_quiz_questions()` so option
   changes on a published quiz are rejected. It is the only function `0009`
-  touches and it is not yet applied to production.
+  touches and it is applied to production (10 recorded migrations).
 - CI: unit and integration are separate steps; integration runs against a
   disposable Postgres service container, and both the Vitest guard and
   `playwright.config.ts` fail closed in CI if the database suites would skip.
+  Run `40219050750` on `ce3257d` executed migrate, integration, build, and e2e.
+- Redis resilience: the client sets `retry: false`, so a dead Redis fails in
+  milliseconds instead of retrying for ~4.4 s per command. Rate limits fail
+  open and the results cache falls back to the database.
 
 ## Rehearsal and test status
 
@@ -272,8 +313,7 @@ only) has its own migration gate.
   `concurrency` 3. The earlier 4-file / 23-test figure predates the slug tests.
 - Playwright: **5 tests in 4 files**; `share-slug` passed 1/1. The full e2e run
   needs port 3000 free and a single worker.
-- Lint, typecheck, and workflow YAML parse pass. The production build is part of
-  the new CI workflow but has not been re-run on GitHub.
+- Lint, typecheck, and the production build pass in CI (`40219050750`).
 - Migration rehearsal: fresh `0000`–`0009` and upgrade `0008`→`0009` both end at
   migration `0009` with 10 recorded migrations. `pg_dump --schema-only` output is
   **identical** for the two databases (1342 lines), so `0009` behaves the same
@@ -286,9 +326,10 @@ only) has its own migration gate.
 - Known flake: the passcode e2e failed once on a cold dev-server start and then
   passed 3/3. No trace was retained because Playwright clears `test-results`;
   treat it as a cold-start timing issue until it recurs.
-- Not verified: the new CI workflow has not run on GitHub (nothing pushed); the
-  `0009` production migration and a production create/vote smoke test are
-  pending; Phase 3 cookie-forging tests were deliberately skipped.
+- Not verified: a production create/vote smoke test, the deployed commit, and
+  the CDN cache-header behaviour (see “Deployment verification”); Phase 3
+  cookie-forging tests were deliberately skipped. `0009` is applied and CI is
+  green.
 - Rehearsal found and fixed: question-level per-question ballot totals being
   overwritten by option rows, wrapped Drizzle/Postgres errors losing the
   “closed” mapping, ambiguous PL/pgSQL `event_id` variable in a trigger, a
@@ -309,38 +350,60 @@ only) has its own migration gate.
 - Compact cover editing and persisted focal points are implemented. Final
   owner-supplied pattern artwork and wireframe/aspect-ratio decisions remain
   open.
-- Social link and account deletion are not implemented.
+- A profile-level social link and account deletion are not implemented. The
+  guest ballot handle is implemented and is a different feature.
 - Docs previously claimed quiz work had not started; this file and the quiz plan
   are now the source of truth for the current state.
 
 ## Known gaps and next steps
 
-1. **Apply `0009` to production.** The owner applies it; it is not applied here.
-   Then run a production create/vote smoke test before any contract work.
-2. **Push and watch the new CI.** Nothing is pushed yet. The first run of the
-   Postgres-service workflow is the real proof that the suites run rather than
-   skip; confirm the integration step reports tests instead of 0 s.
-3. **Rebuild the Drizzle snapshots.** Snapshots `0005`–`0009` are missing, so
-   `drizzle-kit generate` would diff against `0004` and emit duplicate SQL.
-   Rebuild or squash the chain before authoring `0010`.
-4. **Migration `0010` contract.** Drop legacy `vote_picks`, `votes.option_id` /
-   `is_submitted`, `options.event_id`, and `events.pick_type` / `max_picks`
-   only after the production smoke test and the snapshot rebuild.
-5. **Edit published polls.** Implement the edit rules, edited marker, cache
-   invalidation, and immutable question/options after votes with concurrency
+Ordered, with the small verification items first and the irreversible work last.
+
+1. **Production create/vote smoke test.** Create, autosave, reload, publish,
+   vote in a second browser, open the slug, upload and remove a cover, and try
+   the passcode path. This is the only thing the `0009` migration did not prove.
+2. **Confirm what production is running.** The live checks found a 200 (not
+   404) on the undeployed load route and a `Cache-Control` that does not match
+   the repo. Confirm the deployed commit in Vercel, redeploy `ce3257d` if it is
+   behind, and re-check the results header.
+3. **Answer key, scoring, and leaderboard.** The product has no scoring rule
+   yet: deciding how Pick-one and Pick-top-N questions are scored is the
+   prerequisite, then store an answer key per question and compute a
+   leaderboard. This is the largest unimplemented feature.
+4. **Share image.** Add an Instagram-story-sized download rendered in the
+   browser (client canvas, no server render), plus per-poll Open Graph images
+   for link previews. Needs a route or metadata handler and cache rules.
+5. **Landing page at `/`.** `/` is currently an alias for Discover; replace it
+   with a static, no-database landing page. This reverses the current
+   “alias” decision, so update Discover links and the mobile nav at the same
+   time.
+6. **Rebuild the Drizzle snapshots, then `0010`.** Snapshots `0005`–`0009` are
+   missing, so `drizzle-kit generate` would diff against `0004` and emit
+   duplicate SQL. Rebuild or squash the chain, then drop legacy `vote_picks`,
+   `votes.option_id` / `is_submitted`, `options.event_id`, and
+   `events.pick_type` / `max_picks` — only after a stable production period.
+7. **Edit published polls.** Implement the edit rules, edited marker, cache
+   invalidation, and immutable questions/options after votes, with concurrency
    tests.
-6. **Finalize cover artwork.** Replace the remaining generated preset gradients
-   with the owner-supplied pattern/preset artwork when it exists and confirm the
-   final wireframe aspect ratio.
-7. **Social link.** Separate migration gate for platform + handle constrained to
-   HTTPS `instagram.com` / `x.com`.
-8. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
+8. **Social link.** Profile-level platform + handle under its own migration
+   gate, constrained to HTTPS `instagram.com` / `x.com`. Not the guest ballot
+   handle described under “Key decisions”.
+9. **Account deletion.** Do last: anonymize PII, delete sessions/accounts/drafts,
    retain a tombstone user, and close/unlist open polls.
-9. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
-   preview deployment, and replace ~2-second polling with WebSockets when the
-   edge-request cost justifies it. Ranked scoring remains undefined.
-10. **Repository hygiene.** Delete merged feature branches after their PRs land
-    and keep new work off merged branches.
+10. **Ballot hot path.** A 20-question mixed ballot takes 175.7 ms locally and
+    issues ~79 statements, 50 of them from per-row answer triggers. Grouped or
+    statement-level validation would cut that to ~11. Report-only so far; no
+    refactor started.
+11. **Finalize cover artwork.** Replace the remaining generated preset gradients
+    with the owner-supplied pattern/preset artwork and confirm the final
+    wireframe aspect ratio.
+12. **Scale work.** Tune `DATABASE_POOL_MAX`, re-measure vote throughput on a
+    preview deployment, and replace ~2-second polling with WebSockets when the
+    edge-request cost justifies it.
+13. **Small polish.** No `robots.txt` or sitemap exists; per-poll metadata is
+    generic; empty states and 404 copy have not had a pass.
+14. **Repository hygiene.** Keep new work off merged branches and keep the
+    `archive/*` tags as the only trace of the old backup branches.
 
 ## Resume checklist
 
@@ -357,13 +420,20 @@ only) has its own migration gate.
 
 ## Time estimate
 
-The quiz engineering and DB-backed test work are done. What remains is
-owner-gated: apply `0009` and smoke-test production (under an hour), push and
-watch the first real CI run, rebuild the Drizzle snapshots, then author `0010`.
-Treat the snapshot rebuild as the risky item; budget a focused session for it.
+The quiz engineering, migration, and CI work are done and shipped. Remaining
+verification is a production smoke test and a deployment-commit check (under
+an hour). The next build items are answer key/scoring/leaderboard, the share
+image, and the landing page; the snapshot rebuild plus `0010` should wait for a
+stable production period. Treat the snapshot rebuild as the risky item and
+budget a focused session for it.
 
 ## Environment notes
 
+- Production URL: `https://pickem121.vercel.app`.
+- `.vercelignore` excludes `app/api/load`, `tests`, `scripts/load`,
+  `playwright.config.ts`, `vitest.config.mts`, and `.github`. No Vercel
+  deployment built from this repo includes the load-test route, so a public
+  deployment answers it with the not-found page.
 - `DATABASE_URL` is the runtime URL (pooled in production);
   `DATABASE_URL_UNPOOLED` is the direct connection used for migrations.
 - `DATABASE_POOL_MAX` defaults to 5; `db/index.ts` sets `prepare: false` for the
