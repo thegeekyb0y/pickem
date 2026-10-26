@@ -32,6 +32,9 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   // Generous: a dev server compiles server actions on first use.
   timeout: 90_000,
+  // The first request to a route pays its Turbopack compile time, which can
+  // exceed the 5s default on the builder and edit routes.
+  expect: { timeout: 15_000 },
   reporter: "list",
   use: {
     baseURL,

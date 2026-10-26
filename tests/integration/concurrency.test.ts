@@ -26,6 +26,9 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
+vi.mock("@/lib/live/result-cache", () => ({
+  invalidateResultCache: vi.fn(async () => undefined),
+}));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "x-real-ip": "127.0.0.1" }),
   cookies: async () => ({
@@ -49,6 +52,7 @@ type SqlClient = ReturnType<typeof postgres>;
 let sql: SqlClient | undefined;
 let submitVote: typeof import("@/lib/events/voting").submitVote | undefined;
 let closeEvent: typeof import("@/lib/events/actions").closeEvent | undefined;
+let updatePublishedQuiz: typeof import("@/lib/events/actions").updatePublishedQuiz | undefined;
 const eventIds: string[] = [];
 const userIds: string[] = [];
 const creatorUserId = "pickem-concurrency-creator";
@@ -56,7 +60,7 @@ const creatorUserId = "pickem-concurrency-creator";
 if (enabled && testUrl) {
   sql = postgres(testUrl, { max: 4, prepare: false });
   ({ submitVote } = await import("@/lib/events/voting"));
-  ({ closeEvent } = await import("@/lib/events/actions"));
+  ({ closeEvent, updatePublishedQuiz } = await import("@/lib/events/actions"));
 }
 
 async function waitFor(
@@ -177,6 +181,55 @@ async function pollStatus(eventId: string) {
   if (!sql) throw new Error("Integration database is not enabled");
   const [row] = await sql`select status from events where id = ${eventId}`;
   return row.status as string;
+}
+
+/** Holds the quiz row exclusively, blocking both edits and close-early. */
+async function holdEventLock(eventId: string) {
+  if (!sql) throw new Error("Integration database is not enabled");
+  let release!: () => void;
+  let acquired!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const locked = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+
+  const transaction = sql.begin(async (tx) => {
+    await tx`select id from events where id = ${eventId} for update`;
+    acquired();
+    await released;
+  });
+
+  await locked;
+  return { release: () => release(), done: transaction };
+}
+
+async function buildEditInput(
+  eventId: string,
+  overrides: { title?: string; expectedDraftVersion?: number } = {},
+) {
+  if (!sql) throw new Error("Integration database is not enabled");
+  const [row] = await sql`
+    select title, draft_version, opens_at, closes_at from events where id = ${eventId}
+  `;
+  return {
+    eventId,
+    expectedDraftVersion: overrides.expectedDraftVersion ?? Number(row.draft_version),
+    title: overrides.title ?? (row.title as string),
+    description: "",
+    opensAt: new Date(row.opens_at).toISOString(),
+    closesAt: new Date(row.closes_at).toISOString(),
+    coverKind: "none" as const,
+    coverRef: null,
+    coverMeta: null,
+  };
+}
+
+async function pollTitle(eventId: string) {
+  if (!sql) throw new Error("Integration database is not enabled");
+  const [row] = await sql`select title, draft_version, edited_at from events where id = ${eventId}`;
+  return { title: row.title as string, draftVersion: Number(row.draft_version), editedAt: row.edited_at };
 }
 
 describe.skipIf(!enabled)("vote and close concurrency", () => {
@@ -329,6 +382,118 @@ describe.skipIf(!enabled)("vote and close concurrency", () => {
         where event_id = ${poll.eventId} and created_at > ${poll.closesAt}
       `;
       expect(Number(late.c)).toBe(0);
+    },
+    30_000,
+  );
+
+  it(
+    "makes an owner edit wait for an in-flight ballot",
+    async () => {
+      if (!sql || !submitVote || !updatePublishedQuiz) return;
+      const poll = await createPoll();
+
+      const held = await holdOptionLock(poll.optionIds[0]);
+      const ballot = submitVote({
+        eventId: poll.eventId,
+        answers: [{ questionId: poll.questionId, optionIds: [poll.optionIds[0]] }],
+        guestHandle: "during-edit",
+        guestHandlePlatform: "x",
+      });
+      let editing: Promise<unknown> | undefined;
+
+      try {
+        expect(await waitFor(() => hasAppLockWait(ballot))).toBe(true);
+
+        mocks.sessionUserId = creatorUserId;
+        editing = updatePublishedQuiz(
+          await buildEditInput(poll.eventId, { title: "Edited during ballot" }),
+        );
+
+        // FOR UPDATE conflicts with the ballot's FOR KEY SHARE, so the edit
+        // cannot land while the ballot is still uncommitted.
+        const editSettledEarly = await Promise.race([
+          editing.then(() => true),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
+        ]);
+        expect(editSettledEarly).toBe(false);
+      } finally {
+        held.release();
+        await held.done;
+      }
+
+      expect(await ballot).toMatchObject({ ok: true });
+      expect(await editing).toMatchObject({ ok: true, edited: true });
+      expect(await countBallots(poll.eventId)).toBe(1);
+      expect((await pollTitle(poll.eventId)).title).toBe("Edited during ballot");
+    },
+    30_000,
+  );
+
+  it(
+    "serializes two simultaneous edits so only one wins the version gate",
+    async () => {
+      if (!sql || !updatePublishedQuiz) return;
+      const poll = await createPoll();
+      mocks.sessionUserId = creatorUserId;
+      const firstInput = await buildEditInput(poll.eventId, { title: "First editor" });
+      const secondInput = { ...firstInput, title: "Second editor" };
+
+      // Queue both edits behind the same row lock so they overlap for certain.
+      const held = await holdEventLock(poll.eventId);
+      let first: Promise<unknown> | undefined;
+      let second: Promise<unknown> | undefined;
+      try {
+        first = updatePublishedQuiz(firstInput);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        second = updatePublishedQuiz(secondInput);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } finally {
+        held.release();
+        await held.done;
+      }
+
+      const [firstResult, secondResult] = (await Promise.all([first, second])) as Array<{
+        ok: boolean;
+        reason?: string;
+      }>;
+      expect([firstResult.ok, secondResult.ok].filter(Boolean)).toHaveLength(1);
+      expect([firstResult, secondResult].filter((result) => !result.ok)).toHaveLength(1);
+
+      const stored = await pollTitle(poll.eventId);
+      expect(stored.title).toBe("First editor");
+      expect(stored.draftVersion).toBe(2);
+    },
+    30_000,
+  );
+
+  it(
+    "serializes an edit with close-early without losing either",
+    async () => {
+      if (!sql || !updatePublishedQuiz || !closeEvent) return;
+      const poll = await createPoll();
+      mocks.sessionUserId = creatorUserId;
+      const editInput = await buildEditInput(poll.eventId, { title: "Edited before close" });
+
+      const held = await holdEventLock(poll.eventId);
+      let editing: Promise<unknown> | undefined;
+      let closing: Promise<unknown> | undefined;
+      try {
+        editing = updatePublishedQuiz(editInput);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        closing = closeEvent(poll.eventId);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } finally {
+        held.release();
+        await held.done;
+      }
+
+      const [editResult, closeResult] = await Promise.all([editing, closing]);
+      expect(editResult).toMatchObject({ ok: true });
+      expect(closeResult).toEqual({ ok: true });
+      expect(await pollStatus(poll.eventId)).toBe("closed");
+      const stored = await pollTitle(poll.eventId);
+      expect(stored.title).toBe("Edited before close");
+      expect(stored.editedAt).not.toBeNull();
     },
     30_000,
   );
