@@ -119,10 +119,14 @@ compute in `ap-southeast-1`. Every ballot makes about eight database round
 trips, so running the functions near the database is worth roughly 150ms per
 request.
 
-Preview deployments run migrations during the build, against the preview
-branch. Production migrations stay manual. The build refuses to migrate when
-the target is the production database, so enable Neon preview branching before
-relying on it.
+Preview builds do **not** migrate by default. Without Neon preview branching
+the preview database is the production database, so a preview build must never
+migrate unless someone opts in deliberately. To opt in, set
+`PICKEM_PREVIEW_MIGRATE=1` in that Vercel project's environment (Preview only)
+and make sure `DATABASE_URL_UNPOOLED` points at a disposable branch. The build
+then runs `scripts/db/preflight-migration.mjs` first, which refuses when the
+target host matches `PRODUCTION_DATABASE_HOST`. Production migrations stay
+manual.
 
 The load-test endpoint under `app/api/load` is excluded from the deployment by
 `.vercelignore`, and it also refuses to run outside a preview. The test suites
