@@ -24,6 +24,7 @@ type DateTimePickerProps = {
   errorId?: string;
   kind: "opens" | "closes";
   referenceInstant?: string;
+  disabled?: boolean;
 };
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
@@ -61,6 +62,7 @@ export function DateTimePicker({
   errorId,
   kind,
   referenceInstant,
+  disabled = false,
 }: DateTimePickerProps) {
   const [open, setOpen] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -120,7 +122,7 @@ export function DateTimePicker({
         {label}
       </label>
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem]">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={(next) => { if (!disabled) setOpen(next); }}>
           <PopoverTrigger asChild>
             <Button
               id={id}
@@ -128,6 +130,7 @@ export function DateTimePicker({
               variant="tertiary"
               leadingIcon={CalendarDays}
               trailingIcon={ChevronDown}
+              disabled={disabled}
               aria-label={`${label}: ${selectedDate ? dateFormat.format(selectedDate) : "choose date"}`}
               aria-expanded={open}
               aria-invalid={Boolean(error || localError)}
@@ -199,7 +202,7 @@ export function DateTimePicker({
             id={`${id}-time`}
             type="time"
             value={timeValue}
-            disabled={!selectedDate}
+            disabled={!selectedDate || disabled}
             onChange={(event) => {
               if (selectedDate) saveLocalDateTime(selectedDate, event.target.value);
             }}

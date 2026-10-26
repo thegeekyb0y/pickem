@@ -36,6 +36,7 @@ export type EventListItem = {
   coverKind: QuizCoverKind;
   coverRef: string | null;
   coverMeta: QuizCoverMeta | null;
+  editedAt: Date | null;
   questionCount: number;
   ballotCount: number;
 };
@@ -92,6 +93,7 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
       coverKind: events.coverKind,
       coverRef: events.coverRef,
       coverMeta: events.coverMeta,
+      editedAt: events.editedAt,
       questionCount: sql<number>`(
         select count(*)::int from ${questions} where ${questions.eventId} = ${events.id}
       )`,
@@ -117,9 +119,10 @@ async function queryDiscoverablePolls(): Promise<EventListItem[]> {
   }));
 }
 
-export type CachedEventListItem = Omit<EventListItem, "opensAt" | "closesAt"> & {
+export type CachedEventListItem = Omit<EventListItem, "opensAt" | "closesAt" | "editedAt"> & {
   opensAt: string;
   closesAt: string;
+  editedAt: string | null;
 };
 
 export function hydrateEventListItem(row: CachedEventListItem): EventListItem {
@@ -127,6 +130,7 @@ export function hydrateEventListItem(row: CachedEventListItem): EventListItem {
     ...row,
     opensAt: new Date(row.opensAt),
     closesAt: new Date(row.closesAt),
+    editedAt: row.editedAt ? new Date(row.editedAt) : null,
   };
 }
 
@@ -137,6 +141,7 @@ const getCachedDiscoverablePolls = unstable_cache(
       ...row,
       opensAt: row.opensAt.toISOString(),
       closesAt: row.closesAt.toISOString(),
+      editedAt: row.editedAt?.toISOString() ?? null,
     }));
   },
   ["home-discoverable-quizzes-v3"],

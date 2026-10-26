@@ -62,6 +62,20 @@ async function refill(event: ResultEvent, cacheKeys: ReturnType<typeof keys>) {
   return snapshot;
 }
 
+/**
+ * Drops every cached shape for one poll. Best effort: Redis is an optimization,
+ * and the database stays authoritative when it is unavailable.
+ */
+export async function invalidateResultCache(eventId: string): Promise<void> {
+  const cacheKeys = keys(eventId);
+  localFlights.delete(cacheKeys.fresh);
+  try {
+    await redis.del(cacheKeys.fresh, cacheKeys.stale, cacheKeys.lock);
+  } catch {
+    // Continue; the short open-quiz TTL bounds staleness on its own.
+  }
+}
+
 export function getCachedResultSnapshot(event: ResultEvent): Promise<ResultSnapshot> {
   const cacheKeys = keys(event.id);
   const active = localFlights.get(cacheKeys.fresh);
