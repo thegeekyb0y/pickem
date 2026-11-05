@@ -2,12 +2,9 @@ import Link from "next/link";
 import { CalendarClock, ListChecks, Vote } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import QuizCover from "@/components/quiz-cover";
+import { formatPollDateTime } from "@/lib/events/format";
 import type { EventListItem } from "@/lib/events/list";
-
-const dateTime = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+import CardTime from "./card-time";
 
 export default function EventCard({
   poll,
@@ -18,6 +15,8 @@ export default function EventCard({
 }) {
   const phaseLabel = phase === "live" ? "Voting open" : phase === "scheduled" ? "Starts soon" : "Closed";
   const phaseColor = phase === "live" ? "green" : phase === "scheduled" ? "amber" : "gray";
+  const timeTarget = phase === "scheduled" ? poll.opensAt : poll.closesAt;
+  const timePrefix = phase === "scheduled" ? "Opens " : phase === "closed" ? "Closed " : "Closes ";
 
   return (
     <li className="list-none">
@@ -63,12 +62,16 @@ export default function EventCard({
               {poll.ballotCount === 1 ? "response" : "responses"}
             </span>
           </div>
-          <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-subtle-foreground">
+          <p className="mt-2 inline-flex items-center gap-1.5 text-xs tabular-nums text-subtle-foreground">
             <CalendarClock aria-hidden="true" className="size-3.5" />
             <span>
-              {phase === "scheduled" ? "Opens " : phase === "closed" ? "Closed " : "Closes "}
-              {dateTime.format(phase === "scheduled" ? poll.opensAt : poll.closesAt)}
-              {poll.editedAt ? <> · Edited {dateTime.format(poll.editedAt)}</> : null}
+              <CardTime
+                prefix={timePrefix}
+                dateTime={timeTarget}
+                fallback={formatPollDateTime(timeTarget)}
+                editedAt={poll.editedAt}
+                editedFallback={poll.editedAt ? formatPollDateTime(poll.editedAt) : null}
+              />
             </span>
           </p>
           {poll.coverKind === "unsplash" && poll.coverMeta?.photographer ? (

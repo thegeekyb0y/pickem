@@ -319,6 +319,12 @@ only) has its own migration gate.
   `home:polls` with `{ expire: 0 }` (blocking) instead of `"max"`, whose
   stale-while-revalidate window is one year. The 45-second TTL remains a
   fallback.
+- Discover/home card times: cards render on the server, where `Intl` uses the
+  host timezone (UTC in production). `CardTime` renders the server string first
+  for deterministic hydration, then `useSyncExternalStore` swaps in the viewer's
+  local time with a short zone label. `formatPollDateTime` in
+  `lib/events/format.ts` keeps the card, the poll page, and their tests on one
+  option set.
 - CI: unit and integration are separate steps; integration runs against a
   disposable Postgres service container, and both the Vitest guard and
   `playwright.config.ts` fail closed in CI if the database suites would skip.
@@ -332,16 +338,16 @@ only) has its own migration gate.
 - Script split: `npm test` runs **unit tests only**; `npm run test:integration`
   is the database step and `npm run test:e2e` is Playwright. A plain `npm test`
   never touches the database and cannot catch the DB-level guards.
-- Unit: **14 files / 75 tests** pass. The whole suite in one process exceeds the
+- Unit: **15 files / 77 tests** pass. The whole suite in one process exceeds the
   90 s command budget because of import time, so it is verified as three split
-  runs (7 files/32 tests, 2 files/6 tests, 5 files/37 tests).
+  runs (8 files/34 tests, 2 files/6 tests, 5 files/37 tests).
 - Integration: **7 files / 47 tests** pass on the base test database, which is
   at migration `0010`. Per file: `quiz-integrity` 13, `edit-published` 11,
   `concurrency` 6, `voting` 6, `save-quiz` 5, `slug-route` 5,
   `discover-list` 1.
-- Playwright: **7 tests in 6 files** pass with one worker and port 3000 free,
-  including the owner edit flow, its Discover invalidation, and the
-  post-ballot card counts.
+- Playwright: **8 tests in 7 files** pass with one worker and port 3000 free,
+  including the owner edit flow, its Discover invalidation, the post-ballot card
+  counts, and viewer-timezone card times.
 - Lint, typecheck, and the production build pass in CI (`40219050750`); lint and
   typecheck also pass locally for the edit-published branch.
 - Migration rehearsal: fresh `0000`–`0010` and upgrade `0009`→`0010` both end at
